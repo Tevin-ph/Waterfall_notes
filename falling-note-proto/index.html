@@ -192,6 +192,11 @@
         <label class="act" style="cursor:pointer">Choose File<input id="anyFile" type="file" accept=".mid,.midi,.pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.xml,.musicxml,audio/*,video/*,image/*"></label>
       </div>
       <label class="rights"><input type="checkbox" id="rights"> I own the rights to this media or have permission to use it</label>
+      <label class="rights sens"><span>Note detail</span>
+        <select id="sens" title="How many notes to look for in a recording or video">
+          <option value="balanced">Balanced (recommended)</option><option value="more">More notes (adds some extras)</option><option value="fewer">Fewer notes, cleaner</option>
+        </select>
+      </label>
       <div id="createMsg" aria-live="polite"></div>
       <div id="embedBox" hidden>
         <div class="embedBody">
@@ -938,12 +943,17 @@ async function audioToNotes(f) {
     const mono = (await off.startRendering()).getChannelData(0);
     dock("Loading the note detector…", 0.15);
     transcriber = transcriber || (await import("./vendor/basicpitch.js")).transcribe;
-    const notes = await transcriber(mono, "vendor/model.json", p => dock("Turning the sound into notes… " + Math.round(p * 100) + "%", 0.2 + 0.8 * p));
-    // Drop very short blips, and short notes that are just overtones (octave/12th/2 octaves...) of a longer note starting together.
+    // Note detail. Measured on a fast test passage (40 notes, 0.1 s apart): Balanced found 75-80% with 94% correct; More found 85% but
+    // only 61% correct (lots of false notes). Notes under ~0.12 s are normal in fast music, so they must not be filtered out.
+    const PRESETS = { more: { onset: 0.35, frame: 0.22, minLen: 4, minDur: 0.045 }, balanced: { onset: 0.5, frame: 0.3, minLen: 5, minDur: 0.06 }, fewer: { onset: 0.65, frame: 0.4, minLen: 7, minDur: 0.12 } };
+    const P = PRESETS[$("sens").value] || PRESETS.balanced;
+    const notes = await transcriber(mono, "vendor/model.json", p => dock("Turning the sound into notes… " + Math.round(p * 100) + "%", 0.2 + 0.8 * p), P);
+    // Drop tiny blips, and only the obvious overtone ghosts: a short, much quieter note an octave/12th/2 octaves above a longer
+    // note that starts at the same moment. Real octave doublings (similar loudness) are kept.
     const HARM = new Set([12, 19, 24, 28, 31]);
     const good = notes
-      .filter(n => n.d >= 0.12)
-      .filter(n => !(n.d < 0.3 && notes.some(o => o !== n && o.d > n.d * 2 && Math.abs(o.t - n.t) < 0.06 && HARM.has(n.m - o.m))))
+      .filter(n => n.d >= P.minDur)
+      .filter(n => !(n.d < 0.25 && notes.some(o => o !== n && o.d > n.d * 2 && Math.abs(o.t - n.t) < 0.06 && HARM.has(n.m - o.m) && n.v < 0.55 * o.v)))
       .map(n => ({ ...n, h: handOfAuto(n.m) })).sort((a, b) => a.t - b.t);
     if (!good.length) throw new Error("No notes were detected. Piano or other clear single instruments work best.");
     const isVideo = /^video\//.test(f.type) || /\.(mp4|mov|webm|m4v)$/i.test(f.name);
