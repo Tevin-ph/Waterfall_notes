@@ -224,12 +224,12 @@
       <div id="embedBox" hidden>
         <div id="ownBox">
           <h2>Use your video file</h2>
-          <p>Instagram doesn't let apps download videos, so I can't fetch this one from the link. If it's your video, choose the file and I'll do the rest: make the notes, start playing, and show the video next to them.</p>
+          <p><span id="ownSite">This site</span> doesn't let apps download videos, so I can't fetch this one from the link. If it's your video, choose the file and I'll do the rest: make the notes, start playing, and show the video next to them.</p>
           <div class="ownBtns">
             <button id="ownPick" class="primary">Choose the video file</button>
             <button id="playHere" class="linkish">I only have the link: play it here instead</button>
           </div>
-          <p class="tiny">Your own post: in the Instagram app open it, tap the three dots, then Download. Or use the original file you made it from (or its MIDI file, for exact notes).</p>
+          <p class="tiny" id="ownHint">Use the original file you made it from, or its MIDI file for exact notes.</p>
           <button id="ownClose" class="linkish">Close</button>
         </div>
         <div id="embedPlay" hidden>
@@ -1188,10 +1188,9 @@ async function handleLink(raw) {
   if (!rightsOk()) return;
   if (/(^|\.)(youtube\.com|youtu\.be|instagram\.com|tiktok\.com|facebook\.com|fb\.watch|x\.com|twitter\.com)$/i.test(url.hostname)) {
     // These sites don't allow downloading. Show their own embedded player right here; the notes are made from its sound.
-    const emb = embedFor(url);
-    if (emb) { showOwn(emb); say(""); return; }
-    window.open(url.href, "_blank", "noopener");
-    say("Opened it in a new tab. Come back here and press Capture audio, pick that tab, tick “Also share tab audio”, then play the video.");
+    const h = url.hostname.replace(/^(www|m)\./, "");
+    const site = /instagram/.test(h) ? "Instagram" : /youtu/.test(h) ? "YouTube" : /tiktok/.test(h) ? "TikTok" : /facebook|fb\.watch/.test(h) ? "Facebook" : /^(x|twitter)\./.test(h) ? "X" : h;
+    showOwn(embedFor(url), site); say("");       // a card explains the options; no new tab is opened
     return;
   }
   say("Fetching the file…");
@@ -1220,9 +1219,15 @@ function embedFor(url) {
 }
 // A social link opens a short "use your file" card first (that path is fully automatic). Playing the site's own player is the fallback.
 let pendingEmb = null;
-function showOwn(emb) {
+const OWN_HINTS = {
+  Instagram: "Your own post: in the Instagram app open it, tap the three dots, then Download. Or use the original file you made it from (or its MIDI file, for exact notes).",
+  YouTube: "Your own video: download it from YouTube Studio, or use the original file (or its MIDI file, for exact notes). Someone else's video: only if you have permission to use it.",
+};
+function showOwn(emb, site) {
   pendingEmb = emb; $("embedBox").hidden = false; $("ownBox").hidden = false; $("embedPlay").hidden = true;
-  $("embedBox").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  $("ownSite").textContent = site || "This site"; $("ownHint").textContent = OWN_HINTS[site] || "Use the original file you made it from, or its MIDI file for exact notes.";
+  $("playHere").hidden = !emb;                    // only sites with an embeddable player offer "play it here"
+  $("embedBox").scrollIntoView({ behavior: "auto", block: "center" });     // put the card where you are looking, not off-screen above
 }
 function showEmbed(emb) {
   const f = $("embedFrame"); f.style.height = emb.height + "px"; f.src = emb.src;
