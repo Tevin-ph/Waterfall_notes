@@ -56,6 +56,14 @@
   .chipb svg { width:15px; height:15px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; }
   .rights { display:flex; align-items:center; gap:10px; margin-top:16px; color:var(--dim); cursor:pointer; width:fit-content; }
   .rights input { width:16px; height:16px; accent-color:var(--accent); }
+  #embedBox { margin-top:22px; border:1px solid var(--line2); border-radius:14px; background:var(--panel); overflow:hidden; }
+  #embedBox[hidden] { display:none; }
+  .embedHead { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid var(--line); font-weight:500; }
+  .embedBody { display:flex; flex-wrap:wrap; gap:24px; padding:18px; align-items:flex-start; }
+  #embedFrame { width:min(100%, 400px); height:560px; border:0; border-radius:12px; background:#000; flex:none; }
+  .embedSteps { flex:1 1 260px; margin:0; padding-left:20px; color:var(--dim); line-height:1.8; }
+  .embedSteps b { color:var(--ink); font-weight:500; }
+  .embedSteps button { margin:2px 0; background:var(--ink); color:#000; border-color:var(--ink); font-weight:500; }
   #createMsg { margin-top:26px; color:var(--dim); min-height:22px; }
   #createMsg.err { color:#ff8a8d; }
   .drop { margin-top:26px; border:1px dashed var(--line2); border-radius:14px; padding:34px 26px; color:var(--dim); text-align:center; cursor:pointer; transition:border-color .15s, background .15s; }
@@ -153,6 +161,18 @@
       <label class="rights"><input type="checkbox" id="rights"> I own the rights to this media or have permission to use it</label>
       <div id="createMsg" aria-live="polite"></div>
       <button id="capStop" hidden style="margin-top:14px">Stop and make notes</button>
+      <div id="embedBox" hidden>
+        <div class="embedHead"><span>Play the video here, then turn it into notes</span><button id="embedClose">Close</button></div>
+        <div class="embedBody">
+          <iframe id="embedFrame" title="Video to turn into notes" allow="autoplay; encrypted-media; fullscreen; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+          <ol class="embedSteps">
+            <li>Press <b>play</b> on the video.</li>
+            <li>Press <button id="embedCap">Make notes from this video</button></li>
+            <li>In the sharing window choose <b>This tab</b> and keep <b>Share tab audio</b> ticked.</li>
+            <li>When the song has played, press <b>Stop and make notes</b>.</li>
+          </ol>
+        </div>
+      </div>
       <div class="cap">Start a song</div>
       <div class="chips" id="startChips"></div>
       <div class="drop" id="createDrop" role="button" tabindex="0" aria-label="Choose a file, or drop one here">
@@ -908,6 +928,7 @@ function route() {
   for (const r of ROUTES) $("v-" + r).classList.toggle("show", r === cur);
   document.querySelectorAll(".navi").forEach(a => a.classList.toggle("cur", a.dataset.r === cur));
   if (cur !== "practice") { if (rec.on) stopRec(); pause(); }
+  if (cur !== "create") closeEmbed();
   if (cur === "library") renderLibrary();
   if (cur === "scan") checkScanner();
   if (cur === "practice") { requestAnimationFrame(resize); if (!song.notes.length && !song.layers.length) { $("hint").style.display = ""; $("hint").textContent = "Open a song from Library or Create"; } }
@@ -948,7 +969,9 @@ async function handleLink(raw) {
   if (!/^https?:$/.test(url.protocol)) { say("Only http and https links work.", true); return; }
   if (!rightsOk()) return;
   if (/(^|\.)(youtube\.com|youtu\.be|instagram\.com|tiktok\.com|facebook\.com|fb\.watch|x\.com|twitter\.com)$/i.test(url.hostname)) {
-    // These sites don't allow downloading, so open the video for you to play and listen to its sound instead.
+    // These sites don't allow downloading. Show their own embedded player right here; the notes are made from its sound.
+    const emb = embedFor(url);
+    if (emb) { showEmbed(emb); say(""); return; }
     window.open(url.href, "_blank", "noopener");
     say("Opened it in a new tab. Come back here and press Capture audio, pick that tab, tick “Also share tab audio”, then play the video.");
     return;
@@ -965,14 +988,37 @@ function rightsOk() {
   if ($("rights").checked) return true;
   say("Tick the box to confirm you own this media or have permission to use it.", true); return false;
 }
+// The site's own embedded player for a link, if it has one (Instagram posts/reels, YouTube videos).
+function embedFor(url) {
+  const h = url.hostname.replace(/^www\./, "").replace(/^m\./, "");
+  if (h === "instagram.com") {
+    const m = url.pathname.match(/^\/(?:[\w.]+\/)?(p|reel|reels|tv)\/([\w-]+)/);
+    return m ? { src: "https://www.instagram.com/" + (m[1] === "reels" ? "reel" : m[1]) + "/" + m[2] + "/embed/", height: 620 } : null;
+  }
+  let id = null;
+  if (h === "youtu.be") id = url.pathname.slice(1);
+  else if (h === "youtube.com") id = url.searchParams.get("v") || (url.pathname.match(/^\/(?:shorts|embed|live)\/([\w-]+)/) || [])[1];
+  return id && /^[\w-]{11}$/.test(id) ? { src: "https://www.youtube-nocookie.com/embed/" + id + "?rel=0&playsinline=1", height: 300 } : null;
+}
+function showEmbed(emb) {
+  const f = $("embedFrame"); f.style.height = emb.height + "px"; f.src = emb.src; $("embedBox").hidden = false;
+  $("embedBox").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+function closeEmbed() { $("embedFrame").src = "about:blank"; $("embedBox").hidden = true; }
+$("embedClose").onclick = closeEmbed;
+$("embedCap").onclick = () => captureAudio(true);
+
 // Listen to a browser tab's sound (you play the video yourself) and turn it into notes.
 let cap = null;
-async function captureAudio() {
+async function captureAudio(thisTab) {
   if (!rightsOk()) return;
   if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) { say("This browser can't capture tab audio. Use Chrome or Edge.", true); return; }
   let stream;
-  try { stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }); }
-  catch (e) { say("Capture cancelled.", true); return; }
+  try {
+    const opts = { video: true, audio: true };
+    if (thisTab === true) { opts.preferCurrentTab = true; opts.selfBrowserSurface = "include"; }   // jump straight to "this tab" in Chrome/Edge
+    stream = await navigator.mediaDevices.getDisplayMedia(opts);
+  } catch (e) { say("Capture cancelled.", true); return; }
   const tracks = stream.getAudioTracks();
   if (!tracks.length) { stream.getTracks().forEach(t => t.stop()); say("No sound was shared. Pick the tab and tick “Also share tab audio”.", true); return; }
   const chunks = [], mr = new MediaRecorder(new MediaStream(tracks)), t0 = Date.now();
@@ -990,7 +1036,7 @@ async function captureAudio() {
   tracks[0].addEventListener("ended", stopCapture);      // the person pressed the browser's own Stop sharing
 }
 function stopCapture() { if (cap && cap.mr.state !== "inactive") cap.mr.stop(); }
-$("capAudio").onclick = captureAudio;
+$("capAudio").onclick = () => captureAudio(!$("embedBox").hidden);
 $("capStop").onclick = stopCapture;
 $("linkGo").onclick = () => handleLink($("linkIn").value);
 $("linkIn").addEventListener("keydown", e => { if (e.key === "Enter") handleLink($("linkIn").value); });
