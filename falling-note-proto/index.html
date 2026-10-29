@@ -61,13 +61,27 @@
   .embedHead { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid var(--line); font-weight:500; }
   .embedBody { display:flex; flex-wrap:wrap; gap:24px; padding:18px; align-items:flex-start; }
   #embedFrame { width:min(100%, 400px); height:560px; border:0; border-radius:12px; background:#000; flex:none; }
-  .embedSteps { flex:1 1 260px; margin:0; padding-left:20px; color:var(--dim); line-height:1.8; }
-  .embedSteps b { color:var(--ink); font-weight:500; }
+  .embedSide { flex:1 1 260px; display:flex; flex-direction:column; align-items:flex-start; gap:14px; padding-top:6px; }
+  .embedSide h2 { margin:0; font-size:24px; font-weight:500; letter-spacing:-.01em; }
+  .embedSide p { margin:0; color:var(--dim); line-height:1.5; max-width:38ch; }
+  .embedSide .tiny { font-size:12.5px; }
+  .embedSide b { color:var(--ink); font-weight:500; }
+  button.primary { background:var(--ink); color:#000; border-color:var(--ink); font-weight:500; padding:11px 26px; font-size:15px; }
+  button.primary:hover { background:#fff; }
+  button.linkish { border:0; padding:4px 0; color:var(--dim); background:none; }
+  button.linkish:hover { color:var(--ink); background:none; }
+  #capDock { position:fixed; right:28px; bottom:28px; z-index:60; width:min(360px, calc(100vw - 40px)); background:var(--card); border:1px solid var(--line2); border-radius:14px; padding:14px 16px; box-shadow:0 14px 40px rgba(0,0,0,.6); }
+  #capDock[hidden] { display:none; }
+  .dockTop { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; }
+  #dockLabel { font-size:13.5px; line-height:1.4; }
+  #capStop { padding:5px 14px; background:var(--rec); border-color:var(--rec); color:#fff; font-weight:500; flex:none; }
+  #capStop[hidden] { display:none; }
+  .bar { height:6px; border-radius:999px; background:var(--line2); overflow:hidden; position:relative; }
+  #dockFill { height:100%; width:0; background:var(--accent); border-radius:999px; transition:width .25s ease; }
+  #dockFill.indet { width:35%; position:absolute; animation:slide 1.3s ease-in-out infinite; }
+  @keyframes slide { 0% { left:-35%; } 100% { left:100%; } }
   #embedMsg { flex-basis:100%; color:var(--dim); min-height:20px; }
   #embedMsg.err { color:#ff8a8d; }
-  #capStop { position:fixed; right:28px; bottom:28px; z-index:60; background:var(--rec); border-color:var(--rec); color:#fff; padding:12px 20px; font-weight:500; box-shadow:0 10px 30px rgba(0,0,0,.5); }
-  #capStop[hidden] { display:none; }
-  .embedSteps button { margin:2px 0; background:var(--ink); color:#000; border-color:var(--ink); font-weight:500; }
   #createMsg { margin-top:26px; color:var(--dim); min-height:22px; }
   #createMsg.err { color:#ff8a8d; }
   .drop { margin-top:26px; border:1px dashed var(--line2); border-radius:14px; padding:34px 26px; color:var(--dim); text-align:center; cursor:pointer; transition:border-color .15s, background .15s; }
@@ -147,6 +161,11 @@
   </aside>
 
   <div id="main">
+    <!-- progress card: shows on any page while a video is being heard or turned into notes -->
+    <div id="capDock" hidden role="status" aria-live="polite">
+      <div class="dockTop"><span id="dockLabel"></span><button id="capStop" hidden>Stop</button></div>
+      <div class="bar"><div id="dockFill"></div></div>
+    </div>
     <!-- LIBRARY -->
     <section id="v-library" class="view"><div class="page">
       <h1>Library</h1>
@@ -166,18 +185,17 @@
       </div>
       <label class="rights"><input type="checkbox" id="rights"> I own the rights to this media or have permission to use it</label>
       <div id="createMsg" aria-live="polite"></div>
-      <button id="capStop" hidden style="margin-top:14px">Stop and make notes</button>
       <div id="embedBox" hidden>
-        <div class="embedHead"><span>Play the video here, then turn it into notes</span><button id="embedClose">Close</button></div>
         <div class="embedBody">
           <iframe id="embedFrame" title="Video to turn into notes" allow="autoplay; encrypted-media; fullscreen; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin"></iframe>
-          <ol class="embedSteps">
-            <li>Press <b>play</b> on the video.</li>
-            <li>Press <button id="embedCap">Make notes from this video</button></li>
-            <li>In the sharing window choose <b>This tab</b> and keep <b>Share tab audio</b> ticked.</li>
-            <li>When the song has played, press <b>Stop and make notes</b>.</li>
-          </ol>
-          <div id="embedMsg" aria-live="polite"></div>
+          <div class="embedSide">
+            <h2>Turn this video into notes</h2>
+            <p>Start, then press play on the video. It finishes by itself when the video goes quiet.</p>
+            <button id="embedCap" class="primary">Start</button>
+            <p class="tiny">Chrome will ask what to share. Choose <b>This tab</b> and keep <b>Share tab audio</b> on.</p>
+            <div id="embedMsg" aria-live="polite"></div>
+            <button id="embedClose" class="linkish">Close</button>
+          </div>
         </div>
       </div>
       <div class="cap">Start a song</div>
@@ -882,7 +900,7 @@ async function scanSheet(f) {
 let transcriber = null;
 async function audioToNotes(f) {
   try {
-    say("Opening " + f.name + "…");
+    dock("Reading the sound…", 0.05);
     const raw = await f.arrayBuffer();
     let dec;
     try { dec = await ensureAudio().decodeAudioData(raw); }
@@ -891,9 +909,9 @@ async function audioToNotes(f) {
     const off = new OfflineAudioContext(1, Math.ceil(dec.duration * 22050), 22050), src = off.createBufferSource();
     src.buffer = dec; src.connect(off.destination); src.start();
     const mono = (await off.startRendering()).getChannelData(0);
-    say("Loading the note-detection model…");
+    dock("Loading the note detector…", 0.15);
     transcriber = transcriber || (await import("./vendor/basicpitch.js")).transcribe;
-    const notes = await transcriber(mono, "vendor/model.json", p => say("Listening… " + Math.round(p * 100) + "%"));
+    const notes = await transcriber(mono, "vendor/model.json", p => dock("Turning the sound into notes… " + Math.round(p * 100) + "%", 0.2 + 0.8 * p));
     // Drop very short blips, and short notes that are just overtones (octave/12th/2 octaves...) of a longer note starting together.
     const HARM = new Set([12, 19, 24, 28, 31]);
     const good = notes
@@ -902,8 +920,9 @@ async function audioToNotes(f) {
       .map(n => ({ ...n, h: handOfAuto(n.m) })).sort((a, b) => a.t - b.t);
     if (!good.length) throw new Error("No notes were detected. Piano or other clear single instruments work best.");
     const isVideo = /^video\//.test(f.type) || /\.(mp4|mov|webm|m4v)$/i.test(f.name);
-    await importSong({ notes: good, bpm: 100, name: f.name.replace(/\.[^.]+$/, ""), video: isVideo ? f : null }, true);   // a video is kept and plays with the notes
-  } catch (e) { say("Could not turn that into notes: " + e.message, true); }
+    dock("Done", 1); await importSong({ notes: good, bpm: 100, name: f.name.replace(/\.[^.]+$/, ""), video: isVideo ? f : null }, true);   // a video is kept and plays with the notes
+    setTimeout(dockHide, 600);
+  } catch (e) { dockHide(); say("Could not turn that into notes: " + e.message, true); }
 }
 // Send any file to the right importer.
 function openAny(f) {
@@ -1047,6 +1066,13 @@ $("embedClose").onclick = closeEmbed;
 $("embedCap").onclick = () => captureAudio(true);
 
 // Listen to a browser tab's sound (you play the video yourself) and turn it into notes.
+// Progress card (bottom right, on every page). frac: 0..1 for a real percentage, null for "working, length unknown".
+function dock(label, frac, showStop) {
+  $("capDock").hidden = false; $("dockLabel").textContent = label;
+  const f = $("dockFill"); f.classList.toggle("indet", frac == null); f.style.width = frac == null ? "" : Math.round(Math.max(0, Math.min(1, frac)) * 100) + "%";
+  $("capStop").hidden = !showStop;
+}
+const dockHide = () => { $("capDock").hidden = true; };
 let cap = null;
 async function captureAudio(thisTab) {
   if (!rightsOk()) return;
@@ -1068,32 +1094,37 @@ async function captureAudio(thisTab) {
   cap = { mr, stream, timer: null, tick: null };
   mr.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
   mr.onstop = async () => {
-    clearInterval(cap.tick); clearTimeout(cap.timer); stream.getTracks().forEach(t => t.stop()); $("capStop").hidden = true; cap = null;
-    say("Turning the sound into notes… this takes a few seconds");
-    if (!chunks.length) { say("Nothing was captured.", true); return; }
+    clearInterval(cap.tick); clearTimeout(cap.timer); stream.getTracks().forEach(t => t.stop()); cap = null;
+    if (!chunks.length) { dockHide(); say("Nothing was captured. I heard silence: press play on the video and keep Share tab audio on.", true); return; }
     await audioToNotes(new File(chunks, "Captured audio.webm", { type: mr.mimeType || "audio/webm" }));
   };
   mr.start(1000);
-  $("capStop").hidden = false;
+  dock("Waiting for the video to play…", null, true);
   // A live meter so you can see the app is actually hearing the video (silence is the usual reason no notes come out).
   const an = ensureAudio().createAnalyser(); an.fftSize = 1024;
   const srcNode = ac.createMediaStreamSource(new MediaStream(tracks)); srcNode.connect(an);   // not connected to the speakers
-  const buf = new Float32Array(an.fftSize); let loudest = 0;
+  const buf = new Float32Array(an.fftSize), SOUND = 0.004, QUIET_MS = 4000;
+  let loudest = 0, heard = false, lastSound = 0;
   cap.tick = setInterval(() => {
     an.getFloatTimeDomainData(buf);
     let sum = 0; for (const v of buf) sum += v * v;
-    const level = Math.sqrt(sum / buf.length); loudest = Math.max(loudest, level);
-    const s = Math.round((Date.now() - t0) / 1000), bars = Math.min(10, Math.round(level * 60));
-    const meter = "▮".repeat(bars) + "▯".repeat(10 - bars);
-    say(s >= 6 && loudest < 0.003
-      ? "I can't hear anything yet (" + s + "s). Press play on the video, turn its volume up, and make sure “Share tab audio” was ticked."
-      : "Listening… " + s + "s  " + meter + "   Let the song play, then press the red Stop button.", s >= 6 && loudest < 0.003);
-    $("capStop").textContent = "■ Stop and make notes (" + s + "s)";
+    const level = Math.sqrt(sum / buf.length), now = Date.now(), s = Math.round((now - t0) / 1000);
+    loudest = Math.max(loudest, level);
+    if (level > SOUND) { heard = true; lastSound = now; }
+    const mmss = Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+    if (ac.state !== "running") {                    // meter can't run (browser keeps audio paused): no silence claims, manual Stop only
+      ac.resume().catch(() => {}); dock("Listening to the video… " + mmss + "   (press Stop when it ends)", null, true); return;
+    }
+    if (heard && now - lastSound > QUIET_MS) { stopCapture(); return; }            // the video ended: finish by itself
+    if (!heard) dock(s >= 8 ? "I can't hear anything yet. Press play on the video and turn its volume up." : "Waiting for the video to play…", null, true);
+    else dock("Listening to the video… " + mmss + "   (stops by itself when it ends)", null, true);
   }, 300);
   cap.timer = setTimeout(stopCapture, 5 * 60 * 1000);   // 5 minute limit
   tracks[0].addEventListener("ended", stopCapture);      // the person pressed the browser's own Stop sharing
 }
-function stopCapture() { if (cap && cap.mr.state !== "inactive") cap.mr.stop(); }
+function stopCapture() {
+  if (cap && cap.mr.state !== "inactive") { dock("Finishing up…", null, false); cap.mr.stop(); }
+}
 $("capAudio").onclick = () => captureAudio(!$("embedBox").hidden);
 $("capStop").onclick = stopCapture;
 $("linkGo").onclick = () => handleLink($("linkIn").value);

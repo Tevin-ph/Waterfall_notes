@@ -149,6 +149,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=HERE, **kw)
 
+    def end_headers(self):
+        self.send_header("Cache-Control", "no-cache")   # always re-check files, so an open tab never keeps running an old version
+        super().end_headers()
+
     def _reply(self, code, text, ctype="text/plain; charset=utf-8"):
         body = text.encode("utf-8")
         self.send_response(code)
