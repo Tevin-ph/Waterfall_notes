@@ -60,6 +60,12 @@
   #embedBox[hidden] { display:none; }
   .embedHead { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid var(--line); font-weight:500; }
   .embedBody { display:flex; flex-wrap:wrap; gap:24px; padding:18px; align-items:flex-start; }
+  #latestCard { margin-top:22px; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:14px 24px; padding:16px 20px; border:1px solid var(--line2); border-radius:14px; background:var(--panel); }
+  #latestCard[hidden] { display:none; }
+  .lcKicker { font-size:10.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--dim); margin-bottom:6px; }
+  #lcName { font-size:17px; font-weight:500; word-break:break-all; }
+  #lcMeta { color:var(--dim); font-size:13px; margin-top:3px; }
+  .lcBtns { display:flex; align-items:center; gap:18px; }
   #ownBox { padding:26px 28px; display:flex; flex-direction:column; align-items:flex-start; gap:14px; }
   #ownBox[hidden], #embedPlay[hidden] { display:none; }
   #ownBox h2 { margin:0; font-size:24px; font-weight:500; letter-spacing:-.01em; }
@@ -211,7 +217,8 @@
         <input id="linkIn" type="text" placeholder="Paste a link" autocomplete="off" aria-label="Link to a file">
         <button class="act" id="linkGo">Go</button>
         <button class="act" id="recNew" title="Play on your MIDI keyboard to make a new song">Record</button>
-        <button class="act" id="capAudio" title="Listen to the sound of a browser tab (a video you have open) and turn it into notes">Capture audio</button>
+        <button class="act" id="latestBtn" title="Use the newest video, audio, MIDI, PDF or photo in your Downloads folder (you confirm the name first)">Latest download</button>
+        <button class="act" id="capAudio"title="Listen to the sound of a browser tab (a video you have open) and turn it into notes">Capture audio</button>
         <label class="act" style="cursor:pointer">Choose File<input id="anyFile" type="file" accept=".mid,.midi,.pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.xml,.musicxml,audio/*,video/*,image/*"></label>
       </div>
       <label class="rights"><input type="checkbox" id="rights"> I own the rights to this media or have permission to use it</label>
@@ -221,6 +228,10 @@
         </select>
       </label>
       <div id="createMsg" aria-live="polite"></div>
+      <div id="latestCard" hidden>
+        <div class="lcText"><div class="lcKicker">Newest file in your Downloads</div><div id="lcName"></div><div id="lcMeta"></div></div>
+        <div class="lcBtns"><button id="lcUse" class="primary">Use this file</button><button id="lcCancel" class="linkish">Not this one</button></div>
+      </div>
       <div id="embedBox" hidden>
         <div id="ownBox">
           <h2>Use your video file</h2>
@@ -1300,7 +1311,34 @@ async function captureAudio(thisTab) {
 function stopCapture() {
   if (cap && cap.mr.state !== "inactive") { dock("Finishing up…", null, false); cap.mr.stop(); }
 }
-$("capAudio").onclick = () => captureAudio(!$("embedPlay").hidden);
+// "Latest download": the helper names the newest media file in Downloads; you confirm it before anything is read into the app.
+const WN_HEADERS = { "X-WN": "1" };
+const ago = s => { const m = Math.max(0, Math.round((Date.now() / 1000 - s) / 60)); return m < 1 ? "just now" : m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " days ago"; };
+let latestInfo = null;
+$("latestBtn").onclick = async () => {
+  $("latestCard").hidden = true; say("");
+  let r;
+  try { r = await fetch("/latest-download", { headers: WN_HEADERS }); }
+  catch (e) { say("Couldn't reach the helper. Start it with: python falling-note-proto/scan_server.py", true); return; }
+  if (!r.ok) { say((await r.text()).split("\n")[0], true); return; }
+  latestInfo = await r.json();
+  $("lcName").textContent = latestInfo.name;                       // textContent: the name comes from a file on disk
+  $("lcMeta").textContent = (latestInfo.size / 1048576).toFixed(1) + " MB · saved " + ago(latestInfo.modified) + (latestInfo.tooBig ? " · too large to import (over 400 MB)" : "");
+  $("lcUse").disabled = latestInfo.tooBig; $("latestCard").hidden = false;
+  $("latestCard").scrollIntoView({ behavior: "auto", block: "center" });
+};
+$("lcCancel").onclick = () => { $("latestCard").hidden = true; latestInfo = null; };
+$("lcUse").onclick = async () => {
+  if (!latestInfo) return; const info = latestInfo; $("latestCard").hidden = true;
+  dock("Getting " + info.name + "…", null);
+  try {
+    const r = await fetch("/latest-download/file?name=" + encodeURIComponent(info.name), { headers: WN_HEADERS });
+    if (!r.ok) { dockHide(); say((await r.text()).split("\n")[0], true); return; }
+    const blob = await r.blob(); dockHide();
+    openAny(new File([blob], info.name, { type: blob.type }));
+  } catch (e) { dockHide(); say("Couldn't read that file: " + e.message, true); }
+};
+$("capAudio").onclick =() => captureAudio(!$("embedPlay").hidden);
 $("capStop").onclick = stopCapture;
 $("linkGo").onclick = () => handleLink($("linkIn").value);
 $("linkIn").addEventListener("keydown", e => { if (e.key === "Enter") handleLink($("linkIn").value); });
