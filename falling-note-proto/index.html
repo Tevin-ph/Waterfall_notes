@@ -670,7 +670,7 @@ function draw() {
     gl3d.render({ p, notes: song.notes, startIdx: Math.max(0, firstIdx(p - 12)), transpose: S.transpose, allowed, letters: S.letters, look: S.look,
                   live: liveKeys, beatLen: beatLen(), loopA: S.loopA, loopB: S.loopB, lookAhead: LOOK_AHEAD_SEC, range: viewRange() });
     const ci = $("countIn");
-    ci.textContent = S.playing && ac.currentTime < S.anchorCtx ? Math.min(4, Math.ceil((S.anchorCtx - ac.currentTime) / (beatLen() / S.speed))) : "";
+    ci.textContent = S.countin && S.playing && ac.currentTime < S.anchorCtx ? Math.min(4, Math.ceil((S.anchorCtx - ac.currentTime) / (beatLen() / S.speed))) : "";
     updateTime(p); return;
   }
   cx.clearRect(0, 0, W, H);
