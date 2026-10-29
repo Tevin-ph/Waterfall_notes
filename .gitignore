@@ -2,3 +2,6 @@ node_modules/
 __pycache__/
 *.log
 .claude/settings.local.json
+
+# local test files, never committed
+falling-note-proto/_test/
