@@ -27,9 +27,15 @@ Then open http://localhost:8765 in Chrome or Edge.
 - Links and captured audio need the "I own the rights to this media or have permission to use it" box ticked. It is a self-declaration, not a check.
 - Played in on a MIDI keyboard
 
+## Look
+
+The Practice scene is real 3D ([three.js](https://threejs.org) with a bloom glow pass) and zooms to the octaves the song uses. If WebGL is unavailable it falls back to a 2D drawing. Icons are [Lucide](https://lucide.dev) (ISC) and the font is Inter (OFL), both bundled locally.
+
 ## Layout
 
 - `falling-note-proto/index.html` the app
+- `falling-note-proto/scene3d.js` the 3D scene
+- `falling-note-proto/vendor/` bundled libraries (Basic Pitch + model, three.js, icons, font). Rebuild with `build-bp/` (`entry.js`, `entry3d.js`, `make-icons.mjs`)
 - `falling-note-proto/scan_server.py` local helper: serves the app, runs Audiveris, fetches file links
 - `build-bp/` how `vendor/basicpitch.js` was bundled (`npm install && npx esbuild entry.js --bundle --format=esm --minify --outfile=../falling-note-proto/vendor/basicpitch.js`)
 - `falling-note-spec.md` feature and architecture notes
