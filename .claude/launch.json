@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "waterfall-proto",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["falling-note-proto/scan_server.py"],
+      "port": 8765
+    }
+  ]
+}
