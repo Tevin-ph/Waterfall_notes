@@ -5,102 +5,194 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Waterfall Notes</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
-  :root { --bg:#f7f5f2; --card:#ffffff; --ink:#111114; --dim:#8a8780; --line:#e7e3dd; --peach:#ffdcc2; --peach2:#ffc9a3; --rec:#e5484d; --right:#7cc4ff; --left:#ffa970; }
+  :root { --bg:#000; --panel:#0c0c0e; --card:#111114; --ink:#f4f4f5; --dim:#8a8a93; --line:#1f1f24; --line2:#2c2c33; --hover:#1a1a1e; --accent:#ffe45e; --rec:#e5484d; --right:#7cc4ff; --left:#ffa970; }
   * { box-sizing:border-box; }
-  html,body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:14px/1.3 Outfit, "Avenir Next", "Segoe UI", system-ui, sans-serif; overflow:hidden; }
-  #app { display:flex; flex-direction:column; height:100%; }
-  button, select, label.nav { font:inherit; color:var(--ink); background:var(--card); border:1px solid var(--line); border-radius:999px; padding:7px 14px; cursor:pointer; transition:background .15s, border-color .15s, color .15s; }
-  button:hover, select:hover, label.nav:hover { border-color:var(--ink); }
-  button:focus-visible, select:focus-visible, input:focus-visible { outline:2px solid var(--ink); outline-offset:2px; }
-  button.on { background:var(--ink); color:#fff; border-color:var(--ink); }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:14px/1.35 Inter, "Segoe UI", system-ui, sans-serif; overflow:hidden; }
+  #app { display:flex; height:100%; }
+  button, select, label.btn { font:inherit; color:var(--ink); background:transparent; border:1px solid var(--line2); border-radius:10px; padding:7px 13px; cursor:pointer; transition:background .15s, border-color .15s; }
+  button:hover, select:hover, label.btn:hover { background:var(--hover); border-color:#44444d; }
+  button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  button.on { background:var(--ink); color:#000; border-color:var(--ink); }
+  select { appearance:none; padding-right:13px; background:var(--card); }
+  select option { background:#111114; color:var(--ink); }
   input[type=file] { display:none; }
-  select { appearance:none; padding-right:14px; }
 
-  /* top bar */
-  #top { display:flex; align-items:stretch; background:var(--card); border-bottom:1px solid var(--line); min-height:56px; }
-  .brand { display:flex; align-items:center; gap:10px; padding:0 18px; border-right:1px solid var(--line); font-weight:600; line-height:1.05; letter-spacing:-.01em; }
-  .brand svg { width:28px; height:22px; }
-  .navs { display:flex; align-items:center; gap:8px; padding:0 14px; flex-wrap:wrap; }
-  .navs .status { color:var(--dim); font-size:12px; max-width:22ch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  #title { margin-left:auto; align-self:center; color:var(--dim); max-width:26ch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0 14px; }
-  .recGrp { display:flex; align-items:center; gap:8px; padding:0 14px; background:var(--peach); }
-  .recGrp select { background:rgba(255,255,255,.6); border-color:transparent; }
-  .recGrp #rec { background:var(--ink); color:#fff; border-color:var(--ink); }
-  .recGrp #rec.rec { background:var(--rec); border-color:var(--rec); }
+  /* sidebar */
+  #side { width:222px; flex:none; border-right:1px solid var(--line); display:flex; flex-direction:column; padding:18px 12px 14px; overflow:auto; }
+  .logo { display:flex; align-items:center; gap:8px; padding:2px 10px 22px; font-weight:600; line-height:1; font-size:12px; }
+  .logo svg { width:32px; height:24px; }
+  .navi { display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:10px; color:var(--ink); text-decoration:none; font-weight:500; border:0; width:100%; background:none; text-align:left; }
+  .navi:hover { background:var(--hover); }
+  .navi.cur { background:#1e1e22; }
+  .navi svg { width:18px; height:18px; flex:none; stroke:currentColor; fill:none; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+  .grpl { font-size:10.5px; letter-spacing:.14em; color:var(--dim); padding:22px 12px 8px; text-transform:uppercase; }
+  .spacer { flex:1; }
+  .me { border-top:1px solid var(--line); padding:12px 8px 0; color:var(--dim); font-size:12px; }
+  .me b { color:var(--ink); display:block; font-weight:500; font-size:13px; }
 
-  /* layers */
-  #layers { display:flex; flex-wrap:wrap; gap:6px; padding:8px 18px 0; }
+  /* views */
+  #main { flex:1; min-width:0; position:relative; }
+  .view { position:absolute; inset:0; overflow:auto; display:none; }
+  .view.show { display:block; }
+  #v-practice.show { display:flex; flex-direction:column; overflow:hidden; }
+  .page { max-width:1320px; margin:0 auto; padding:54px 40px; }
+  h1 { font-size:64px; line-height:1; font-weight:400; letter-spacing:-.02em; margin:0 0 44px; }
+  .lead { color:var(--dim); margin:-24px 0 30px; max-width:60ch; }
+
+  /* create */
+  .crow { display:flex; align-items:center; gap:36px; padding-bottom:18px; border-bottom:1px solid var(--line2); }
+  .crow .lab { color:#b0b0b8; font-size:19px; font-weight:500; flex:none; }
+  .crow input[type=text] { flex:1; min-width:0; background:none; border:0; color:var(--ink); font:inherit; font-size:30px; outline:none; padding:0; }
+  .crow input::placeholder { color:#55555d; }
+  .crow .act { color:#b0b0b8; font-size:19px; font-weight:500; background:none; border:0; padding:4px 0; border-radius:6px; }
+  .crow .act:hover { color:#fff; background:none; }
+  .cap { font-size:10.5px; letter-spacing:.16em; color:var(--dim); margin:38px 0 14px; text-transform:uppercase; }
+  .chips { display:flex; flex-wrap:wrap; gap:10px; }
+  .chipb { display:flex; align-items:center; gap:10px; padding:11px 16px; border-radius:10px; font-weight:500; background:transparent; }
+  .chipb svg { width:15px; height:15px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; }
+  #createMsg { margin-top:26px; color:var(--dim); min-height:22px; }
+  #createMsg.err { color:#ff8a8d; }
+  .drop { margin-top:26px; border:1px dashed var(--line2); border-radius:14px; padding:26px; color:var(--dim); text-align:center; }
+  .drop.drag, #stage.drag { border-color:var(--accent); outline:2px dashed var(--accent); outline-offset:-8px; }
+
+  /* library */
+  .lrow { display:flex; align-items:center; gap:18px; padding:16px 18px; border:1px solid var(--line); background:var(--panel); border-radius:12px; margin-bottom:10px; }
+  .lrow:hover { border-color:var(--line2); background:var(--card); }
+  .lrow .ic { width:38px; height:38px; border-radius:9px; background:#1e1e22; display:grid; place-items:center; flex:none; }
+  .lrow .ic svg { width:18px; height:18px; stroke:var(--accent); fill:none; stroke-width:1.7; stroke-linecap:round; }
+  .lrow .nm { font-size:16px; font-weight:500; }
+  .lrow .meta { color:var(--dim); font-size:12.5px; margin-top:2px; }
+  .lrow .grow { flex:1; min-width:0; }
+  .lrow .grow > div:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .empty { color:var(--dim); padding:40px 0; }
+
+  /* practice */
+  #pHead { display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:14px 22px 6px; }
+  #title { font-size:20px; font-weight:500; margin-right:auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:40ch; }
+  .status { color:var(--dim); font-size:12px; max-width:20ch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #rec { background:var(--rec); border-color:var(--rec); color:#fff; }
+  #rec.rec { background:#fff; color:var(--rec); border-color:#fff; }
+  #layers { display:flex; flex-wrap:wrap; gap:6px; padding:6px 22px 0; }
   #layers[hidden] { display:none; }
-  .chip { display:flex; align-items:center; gap:6px; background:var(--card); border:1px solid var(--line); border-radius:999px; padding:3px 4px 3px 12px; }
+  .chip { display:flex; align-items:center; gap:6px; background:var(--card); border:1px solid var(--line2); border-radius:999px; padding:3px 4px 3px 12px; }
   .chip .dot { width:10px; height:10px; border-radius:50%; }
   .chip.muted { opacity:.5; }
-  .chip button { padding:2px 10px; font-size:12px; }
-
-  /* stage */
-  #stage { flex:1; position:relative; min-height:0; margin:12px 18px; border-radius:20px; overflow:hidden; background:#101015; box-shadow:0 1px 0 rgba(0,0,0,.04), 0 12px 30px -18px rgba(0,0,0,.45); }
+  .chip button { padding:2px 10px; font-size:12px; border-radius:999px; }
+  #stage { flex:1; position:relative; min-height:0; margin:10px 22px; border-radius:16px; overflow:hidden; background:#050507; border:1px solid var(--line); }
   canvas { position:absolute; inset:0; width:100%; height:100%; display:block; }
-  #hint { position:absolute; left:0; right:0; top:40%; text-align:center; color:#9a97a0; pointer-events:none; font-size:16px; }
-  #stage.drag { outline:2px dashed var(--peach2); outline-offset:-10px; }
-
-  /* dock */
-  #dock { display:flex; flex-wrap:wrap; align-items:center; gap:10px 14px; padding:10px 18px 14px; }
-  #dock #play { background:var(--ink); color:#fff; border-color:var(--ink); padding:9px 20px; font-weight:500; }
+  #hint { position:absolute; left:0; right:0; top:40%; text-align:center; color:#8a8a93; pointer-events:none; font-size:16px; padding:0 20px; }
+  #dock { display:flex; flex-wrap:wrap; align-items:center; gap:10px 14px; padding:6px 22px 16px; }
+  #dock #play { background:var(--ink); color:#000; border-color:var(--ink); padding:9px 20px; font-weight:500; }
   #dock #restart { width:38px; height:38px; padding:0; }
   #time { color:var(--dim); font-variant-numeric:tabular-nums; min-width:92px; }
-  #seek { flex:1 1 220px; min-width:160px; accent-color:var(--ink); }
+  #seek { flex:1 1 220px; min-width:160px; accent-color:var(--accent); }
   .opts { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
-  .opts .sep { width:1px; height:20px; background:var(--line); margin:0 4px; }
-  @media (max-width:700px) { #title, .brand span { display:none; } #stage { margin:8px 10px; border-radius:14px; } #dock { padding:8px 10px 12px; } }
+  .opts .sep { width:1px; height:20px; background:var(--line2); margin:0 4px; }
+  .stepper { display:flex; align-items:center; border:1px solid var(--line2); border-radius:10px; overflow:hidden; }
+  .stepper button { border:0; border-radius:0; padding:7px 11px; }
+  .stepper span { min-width:74px; text-align:center; font-variant-numeric:tabular-nums; color:var(--ink); }
+  .lbl { color:var(--dim); font-size:12px; }
+  @media (max-width:820px) {
+    #side { width:64px; padding:14px 8px; } .navi span, .grpl, .me, .logo span { display:none; } .navi { justify-content:center; padding:11px 0; }
+    h1 { font-size:42px; margin-bottom:28px; } .page { padding:30px 18px; }
+    .crow { flex-wrap:wrap; gap:14px 22px; } .crow input[type=text] { font-size:22px; flex-basis:100%; order:3; }
+    #pHead, #layers, #dock { padding-left:12px; padding-right:12px; } #stage { margin:8px 12px; }
+  }
 </style>
 </head>
 <body>
 <div id="app">
-  <header id="top">
-    <div class="brand">
-      <svg viewBox="0 0 28 22" aria-hidden="true"><rect x="0" y="3" width="7" height="19" rx="3" fill="#111114"/><rect x="10.5" y="0" width="7" height="22" rx="3" fill="#111114"/><rect x="21" y="3" width="7" height="19" rx="3" fill="#111114"/></svg>
+  <aside id="side">
+    <div class="logo">
+      <svg viewBox="0 0 28 22" aria-hidden="true"><rect x="0" y="3" width="7" height="19" rx="3" fill="#ffe45e"/><rect x="10.5" y="0" width="7" height="22" rx="3" fill="#ffe45e"/><rect x="21" y="3" width="7" height="19" rx="3" fill="#ffe45e"/></svg>
       <span>waterfall<br>notes</span>
     </div>
-    <div class="navs">
-      <label class="nav">New song<input id="file" type="file" accept=".mid,.midi,audio/midi"></label>
-      <label class="nav" title="Photo or PDF of sheet music, or a MusicXML file">Scan sheet<input id="scanFile" type="file" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.xml,.musicxml,image/*"></label>
-      <label class="nav" title="An audio or video file of someone playing; it is turned into falling notes on this computer">Audio / video<input id="audioFile" type="file" accept="audio/*,video/*,.mp3,.wav,.m4a,.mp4,.mov,.webm,.ogg,.flac"></label>
-      <button id="demo">Demo</button>
-      <button id="midiBtn">Connect keyboard</button>
-      <button id="saveMidi" title="Download everything as a .mid file">Save MIDI</button>
-      <span id="midiStatus" class="status"></span>
-    </div>
-    <div id="title"></div>
-    <div class="recGrp">
-      <select id="recHand" title="Which hand this take is">
-        <option value="auto">Auto split (C4)</option><option value="0">Right hand</option><option value="1">Left hand</option>
-      </select>
-      <button id="rec" title="Record a new layer while the song plays">&#9679; Record</button>
-    </div>
-  </header>
-  <div id="layers" hidden></div>
-  <main id="stage"><canvas id="cv"></canvas><div id="hint">Drop a .mid file here, or press Demo</div></main>
-  <footer id="dock">
-    <button id="play" title="Space">&#9654; Play</button>
-    <button id="restart" title="Home">&#8634;</button>
-    <div id="time">0:00 / 0:00</div>
-    <input id="seek" type="range" min="0" max="1000" value="0" aria-label="Position">
-    <div class="opts">
-      <select id="speed" title="Speed">
-        <option value="0.25">0.25x</option><option value="0.5">0.5x</option><option value="0.75">0.75x</option>
-        <option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option>
-      </select>
-      <select id="look" title="Look"><option value="flat">Flat</option><option value="spectrum">Spectrum</option></select>
-      <select id="hands" title="Guide hands"><option value="both">Both hands</option><option value="right">Right hand</option><option value="left">Left hand</option></select>
-      <span class="sep"></span>
-      <button id="metro">Metronome</button>
-      <button id="countin">Count-in</button>
-      <button id="letters" class="on" title="Show note names on the bars">Letters</button>
-      <span class="sep"></span>
-      <button id="loopA">A</button><button id="loopB">B</button><button id="loopOn">Loop</button>
-    </div>
-  </footer>
+    <a class="navi" href="#/library" data-r="library"><svg viewBox="0 0 24 24"><path d="M4 6h12M4 12h8M4 18h8"/><path d="M18 16V8l3 1"/><circle cx="16" cy="17" r="2"/></svg><span>Library</span></a>
+    <a class="navi" href="#/create" data-r="create"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>Create</span></a>
+    <div class="grpl">Tools</div>
+    <a class="navi" href="#/practice" data-r="practice"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M8 5v14M12 5v14M16 5v14"/></svg><span>Practice</span></a>
+    <a class="navi" href="#/scan" data-r="scan"><svg viewBox="0 0 24 24"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/></svg><span>Scan sheet music</span></a>
+    <div class="spacer"></div>
+    <div class="me"><b>Local library</b>Saved on this computer</div>
+  </aside>
+
+  <div id="main">
+    <!-- LIBRARY -->
+    <section id="v-library" class="view"><div class="page">
+      <h1>Library</h1>
+      <div id="libList"></div>
+    </div></section>
+
+    <!-- CREATE -->
+    <section id="v-create" class="view"><div class="page">
+      <h1>Create</h1>
+      <div class="crow">
+        <span class="lab">Create</span>
+        <input id="linkIn" type="text" placeholder="Paste a link" autocomplete="off" aria-label="Link to a file">
+        <button class="act" id="linkGo">Go</button>
+        <button class="act" id="recNew" title="Play on your MIDI keyboard to make a new song">Record</button>
+        <label class="act" style="cursor:pointer">Choose File<input id="anyFile" type="file" accept=".mid,.midi,.pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.xml,.musicxml,audio/*,video/*,image/*"></label>
+      </div>
+      <div id="createMsg" aria-live="polite"></div>
+      <div class="cap">Start a song</div>
+      <div class="chips" id="startChips"></div>
+      <div class="drop" id="createDrop">Drop a MIDI file, a recording (mp3, wav, m4a, mp4), a PDF or a photo of sheet music here</div>
+    </div></section>
+
+    <!-- SCAN -->
+    <section id="v-scan" class="view"><div class="page">
+      <h1>Scan sheet music</h1>
+      <p class="lead">Take a photo or PDF of a piece and turn it into falling notes. Works best on a flat, well-lit, high-resolution page.</p>
+      <div class="crow">
+        <span class="lab">Scan</span>
+        <span id="scanState" class="status" style="flex:1;font-size:15px;max-width:none"></span>
+        <label class="act" style="cursor:pointer">Choose photo or PDF<input id="scanPageFile" type="file" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.xml,.musicxml,image/*"></label>
+      </div>
+      <div id="scanMsg" style="margin-top:26px;color:var(--dim);min-height:22px" aria-live="polite"></div>
+      <div class="drop" id="scanDrop">Drop a PDF, photo or MusicXML file here</div>
+    </div></section>
+
+    <!-- PRACTICE -->
+    <section id="v-practice" class="view">
+      <div id="pHead">
+        <div id="title">Nothing open</div>
+        <button id="midiBtn">Connect keyboard</button>
+        <span id="midiStatus" class="status"></span>
+        <select id="recHand" title="Which hand this take is">
+          <option value="auto">Auto split (C4)</option><option value="0">Right hand</option><option value="1">Left hand</option>
+        </select>
+        <button id="rec" title="Record a new layer while the song plays">&#9679; Record</button>
+        <button id="saveLib" title="Save to your library">Save</button>
+        <button id="saveMidi" title="Download as a .mid file">Save MIDI</button>
+      </div>
+      <div id="layers" hidden></div>
+      <div id="stage"><canvas id="cv"></canvas><div id="hint">Open a song from Library or Create</div></div>
+      <div id="dock">
+        <button id="play" title="Space">&#9654; Play</button>
+        <button id="restart" title="Home">&#8634;</button>
+        <div id="time">0:00 / 0:00</div>
+        <input id="seek" type="range" min="0" max="1000" value="0" aria-label="Position">
+        <div class="opts">
+          <span class="lbl">Transpose</span>
+          <div class="stepper"><button id="trDown" aria-label="Down a semitone">&minus;</button><span id="trVal">0</span><button id="trUp" aria-label="Up a semitone">+</button></div>
+          <select id="speed" title="Speed">
+            <option value="0.25">0.25x</option><option value="0.5">0.5x</option><option value="0.75">0.75x</option>
+            <option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option>
+          </select>
+          <select id="look" title="Look"><option value="flat">Flat</option><option value="spectrum">Spectrum</option></select>
+          <select id="hands" title="Guide hands"><option value="both">Both hands</option><option value="right">Right hand</option><option value="left">Left hand</option></select>
+          <span class="sep"></span>
+          <button id="metro">Metronome</button>
+          <button id="countin">Count-in</button>
+          <button id="letters" class="on" title="Show note names on the bars">Letters</button>
+          <span class="sep"></span>
+          <button id="loopA">A</button><button id="loopB">B</button><button id="loopOn">Loop</button>
+        </div>
+      </div>
+    </section>
+  </div>
 </div>
 
 <script>
@@ -138,7 +230,7 @@ function buildDemo() {
   for (const [m, b, d] of mel) notes.push({ m, t: b * beat, d: d * beat * 0.95, v: 0.8, h: 0 });
   for (const [m, b, d] of bass) notes.push({ m, t: b * beat, d: d * beat * 0.95, v: 0.6, h: 1 });
   notes.sort((x, y) => x.t - y.t);
-  return { notes, dur: 32 * beat + 1, bpm, name: "Ode to Joy (demo)" };
+  return { notes, dur: 32 * beat + 1, bpm, name: "Ode to Joy" };
 }
 
 // ---------- Minimal MIDI parser ----------
@@ -305,7 +397,7 @@ const S = { playing: false, speed: 1, anchorCtx: 0, anchorPos: 0, nextIdx: 0, ne
             loopA: null, loopB: null, loopOn: false, look: "flat", hands: "both" };
 const LOOKAHEAD = 0.25; // seconds of audio scheduled ahead
 const rec = { on: false, notes: [], open: new Map(), count: 0 };
-S.letters = true;
+S.letters = true; S.transpose = 0;
 
 function pos() {
   if (!S.playing) return S.anchorPos;
@@ -348,7 +440,7 @@ function scheduler() {
   while (S.nextIdx < song.notes.length && song.notes[S.nextIdx].t < horizon) {
     const n = song.notes[S.nextIdx++];
     const when = S.anchorCtx + (n.t - S.anchorPos) / S.speed;
-    if (allowed(n) && when >= ac.currentTime - 0.01) playNote(n.m, n.v, Math.max(when, ac.currentTime), n.d / S.speed);
+    if (allowed(n) && when >= ac.currentTime - 0.01 && keyGeo[n.m + S.transpose]) playNote(n.m + S.transpose, n.v, Math.max(when, ac.currentTime), n.d / S.speed);
   }
   while (S.nextBeat * beatLen() < horizon) {
     const t = S.nextBeat * beatLen(), when = S.anchorCtx + (t - S.anchorPos) / S.speed;
@@ -398,8 +490,8 @@ function draw() {
   const xAt = (kx, k) => W / 2 + (kx * unit - W / 2) * k;
 
   // background gradient + beat lines
-  cx.fillStyle = "#101015"; cx.fillRect(0, 0, W, H);
-  const bg = cx.createLinearGradient(0, 0, 0, kbTop); bg.addColorStop(0, "#0d0d12"); bg.addColorStop(1, "#1a1a22");
+  cx.fillStyle = "#050507"; cx.fillRect(0, 0, W, H);
+  const bg = cx.createLinearGradient(0, 0, 0, kbTop); bg.addColorStop(0, "#050507"); bg.addColorStop(1, "#14141a");
   cx.fillStyle = bg; cx.fillRect(0, 0, W, kbTop);
   cx.lineWidth = 1;
   const bl = beatLen();
@@ -425,31 +517,32 @@ function draw() {
     if (n.t - p > LOOK_AHEAD_SEC) break;
     const end = n.t + n.d;
     if (end < p) continue;
-    const g = keyGeo[n.m]; if (!g) continue;
+    const pm = n.m + S.transpose, g = keyGeo[pm]; if (!g) continue;
+    const cn = { m: pm, h: n.h };   // what is shown/sounded after transposing
     const dim = !allowed(n);
     const a = proj(n.t - p), b = proj(Math.min(end - p, LOOK_AHEAD_SEC));
     const kw = g.w * 0.92, kx = g.x + (g.w - kw) / 2;
     const x1 = xAt(kx, a.k), x2 = xAt(kx + kw, a.k), x3 = xAt(kx + kw, b.k), x4 = xAt(kx, b.k);
     cx.beginPath(); cx.moveTo(x1, a.y); cx.lineTo(x2, a.y); cx.lineTo(x3, b.y); cx.lineTo(x4, b.y); cx.closePath();
     const fade = 1 - Math.min(1, Math.max(0, (n.t - p) / LOOK_AHEAD_SEC)) * 0.55;
-    cx.fillStyle = color(n, (dim ? 0.18 : 0.95) * fade);
-    if (!dim) { cx.shadowColor = color(n, 0.75 * fade); cx.shadowBlur = 16; }
+    cx.fillStyle = color(cn, (dim ? 0.18 : 0.95) * fade);
+    if (!dim) { cx.shadowColor = color(cn, 0.75 * fade); cx.shadowBlur = 16; }
     cx.fill(); cx.shadowBlur = 0;
     if (!dim) {
       // Round the corners with a same-colour stroke. Spectrum colours by pitch, so keep the hand visible as a border.
       cx.lineJoin = "round";
-      cx.strokeStyle = S.look === "spectrum" ? handColor(n.h) : color(n, 0.95 * fade);
+      cx.strokeStyle = S.look === "spectrum" ? handColor(n.h) : color(cn, 0.95 * fade);
       cx.lineWidth = S.look === "spectrum" ? 3 : 5; cx.stroke(); cx.lineWidth = 1;
       const wb = x2 - x1;
       if (S.letters && wb >= 8) {
         const fs = Math.min(18, wb * 0.8), ty = a.y - Math.min(fs * 0.8, (a.y - b.y) / 2);
         cx.font = `700 ${fs}px system-ui`; cx.textAlign = "center"; cx.textBaseline = "middle"; cx.lineJoin = "round";
-        cx.lineWidth = 3; cx.strokeStyle = "rgba(255,255,255,.55)"; cx.strokeText(NAMES[n.m % 12], (x1 + x2) / 2, ty);
-        cx.fillStyle = "#14141a"; cx.fillText(NAMES[n.m % 12], (x1 + x2) / 2, ty);
+        cx.lineWidth = 3; cx.strokeStyle = "rgba(255,255,255,.55)"; cx.strokeText(NAMES[pm % 12], (x1 + x2) / 2, ty);
+        cx.fillStyle = "#14141a"; cx.fillText(NAMES[pm % 12], (x1 + x2) / 2, ty);
         cx.textAlign = "left"; cx.textBaseline = "alphabetic"; cx.lineWidth = 1;
       }
     }
-    if (n.t <= p && end >= p && !dim) active.set(n.m, n);
+    if (n.t <= p && end >= p && !dim) active.set(pm, cn);
   }
 
   // keys held on the connected keyboard (shown in their hand colour)
@@ -530,7 +623,7 @@ function noteIn(m, vel, ts) {
 function noteOut(m, ts) {
   voiceOff(m); liveKeys.delete(m);
   const o = rec.open.get(m);
-  if (rec.on && o) { rec.open.delete(m); rec.notes.push({ m, t: o.t, d: Math.max(0.05, songPosAt(ts) - o.t), v: o.v }); }
+  if (rec.on && o) { rec.open.delete(m); rec.notes.push({ m: m - S.transpose, t: o.t, d: Math.max(0.05, songPosAt(ts) - o.t), v: o.v }); }
 }
 function onMidiMsg(e) {
   const [st, a, b] = e.data, cmd = st & 0xf0;
@@ -561,11 +654,12 @@ function startRec() {
 function stopRec() {
   if (!rec.on) return;
   const p = pos();
-  for (const [m, o] of rec.open) rec.notes.push({ m, t: o.t, d: Math.max(0.05, p - o.t), v: o.v });
+  for (const [m, o] of rec.open) rec.notes.push({ m: m - S.transpose, t: o.t, d: Math.max(0.05, p - o.t), v: o.v });
   rec.on = false; rec.open.clear(); pause();
   if (rec.notes.length) { song.layers.push({ id: ++rec.count, name: "Take " + rec.count, hand: $("recHand").value, notes: rec.notes, muted: false }); }
   song.minDur = 0; rebuild(); S.anchorPos = Math.min(S.anchorPos, song.dur); resetSched(S.anchorPos);
   renderLayers(); syncUI();
+  if (song.layers.length) saveCurrent();   // takes are kept in the library automatically
 }
 
 function renderLayers() {
@@ -594,8 +688,9 @@ $("layers").addEventListener("click", e => {
 function toMidi() {
   const ppq = 480, tps = ppq * song.bpm / 60, ev = [];
   for (const n of song.notes) {
-    ev.push({ tick: Math.round(n.t * tps), on: 1, m: n.m, v: Math.max(1, Math.round(n.v * 127)) });
-    ev.push({ tick: Math.round((n.t + n.d) * tps), on: 0, m: n.m, v: 0 });
+    const m = n.m + S.transpose; if (m < 0 || m > 127) continue;   // export what you see, transposed
+    ev.push({ tick: Math.round(n.t * tps), on: 1, m, v: Math.max(1, Math.round(n.v * 127)) });
+    ev.push({ tick: Math.round((n.t + n.d) * tps), on: 0, m, v: 0 });
   }
   ev.sort((a, b) => a.tick - b.tick || a.on - b.on);
   const tr = [], vlq = v => { const o = [v & 0x7f]; v >>= 7; while (v > 0) { o.unshift((v & 0x7f) | 0x80); v >>= 7; } tr.push(...o); };
@@ -631,28 +726,47 @@ function syncUI() {
   $("rec").classList.toggle("rec", rec.on); $("rec").innerHTML = rec.on ? "&#9632; Stop rec" : "&#9679; Record";
   $("loopA").classList.toggle("on", S.loopA != null); $("loopB").classList.toggle("on", S.loopB != null);
 }
+// Open a song in the player. s can be a fresh import ({notes,bpm,name}) or a saved library record ({base,layers,...}).
 function loadSong(s) {
   if (rec.on) stopRec();
-  pause(); song = { notes: [], base: s.notes, layers: [], dur: 0, bpm: s.bpm, name: s.name, minDur: 0 };
+  pause();
+  song = { notes: [], base: s.base || s.notes || [], layers: (s.layers || []).map(L => ({ ...L })), dur: 0, bpm: s.bpm || 100, name: s.name || "Untitled",
+           minDur: 0, id: s.id || null, created: s.created || null };
+  rec.count = song.layers.reduce((m, L) => Math.max(m, L.id), 0);
+  S.transpose = s.transpose || 0; $("trVal").textContent = trLabel();
   rebuild(); S.anchorPos = 0; S.loopA = S.loopB = null; S.loopOn = false; resetSched(0);
-  $("title").textContent = s.name; $("hint").style.display = "none"; renderLayers(); syncUI();
+  $("title").textContent = song.name; $("hint").style.display = "none"; renderLayers(); syncUI();
 }
+// A new song from Create: open it, keep it in the library, and jump to the player.
+async function importSong(s) {
+  loadSong(s); say(""); go("practice"); await saveCurrent();
+}
+const trLabel = () => (S.transpose > 0 ? "+" : "") + S.transpose + " st";
 async function loadFile(f) {
-  try { loadSong(parseMidi(await f.arrayBuffer())); $("title").textContent = f.name; }
-  catch (e) { $("hint").style.display = ""; $("hint").textContent = "Could not read that file: " + e.message; }
+  try { const s = parseMidi(await f.arrayBuffer()); s.name = f.name.replace(/\.[^.]+$/, "") || s.name; await importSong(s); }
+  catch (e) { say("Could not read that file: " + e.message, true); }
 }
-function say(msg) { const h = $("hint"); h.style.display = msg ? "" : "none"; h.textContent = msg || ""; }
+// Status text shows in whichever page is open: the Create/Scan message line and the player's stage.
+function say(msg, isErr) {
+  if ($("v-practice").classList.contains("show")) {            // on the player (e.g. a file dropped on the stage): use the stage text
+    const h = $("hint"), empty = !song.notes.length && !song.layers.length;
+    h.style.display = msg || empty ? "" : "none"; h.textContent = msg || (empty ? "Open a song from Library or Create" : "");
+    return;
+  }
+  for (const id of ["createMsg", "scanMsg"]) { const el = $(id); el.textContent = msg || ""; el.classList.toggle("err", !!isErr); }
+}
 async function scanSheet(f) {
   try {
-    if (/\.(xml|musicxml)$/i.test(f.name)) { loadSong(parseMusicXml(await f.text())); $("title").textContent = f.name; return; }
+    const base = f.name.replace(/\.[^.]+$/, "");
+    if (/\.(xml|musicxml)$/i.test(f.name)) { const s = parseMusicXml(await f.text()); if (s.name === "Scanned score") s.name = base; await importSong(s); return; }
     say("Reading the sheet music… this can take a minute");
     let r;
     try { r = await fetch("/scan", { method: "POST", headers: { "X-Filename": f.name }, body: f }); }
     catch (e) { throw new Error("Scan helper not running. Start it with: python falling-note-proto/scan_server.py"); }
     const body = await r.text();
     if (!r.ok) throw new Error(body.split("\n")[0]);
-    loadSong(parseMusicXml(body)); $("title").textContent = f.name;
-  } catch (e) { say("Scan failed: " + e.message); }
+    const s = parseMusicXml(body); if (s.name === "Scanned score") s.name = base; await importSong(s);
+  } catch (e) { say("Scan failed: " + e.message, true); }
 }
 // Audio/video file -> notes, fully in the browser (Spotify Basic Pitch, Apache-2.0, bundled in ./vendor)
 let transcriber = null;
@@ -677,15 +791,135 @@ async function audioToNotes(f) {
       .filter(n => !(n.d < 0.3 && notes.some(o => o !== n && o.d > n.d * 2 && Math.abs(o.t - n.t) < 0.06 && HARM.has(n.m - o.m))))
       .map(n => ({ ...n, h: handOfAuto(n.m) })).sort((a, b) => a.t - b.t);
     if (!good.length) throw new Error("No notes were detected. Piano or other clear single instruments work best.");
-    loadSong({ notes: good, bpm: 100, name: f.name.replace(/\.[^.]+$/, "") });
-  } catch (e) { say("Could not turn that into notes: " + e.message); }
+    await importSong({ notes: good, bpm: 100, name: f.name.replace(/\.[^.]+$/, "") });
+  } catch (e) { say("Could not turn that into notes: " + e.message, true); }
 }
-$("audioFile").onchange = e => { if (e.target.files[0]) audioToNotes(e.target.files[0]); e.target.value = ""; };
-$("scanFile").onchange =e => { if (e.target.files[0]) scanSheet(e.target.files[0]); e.target.value = ""; };
+// Send any file to the right importer.
+function openAny(f) {
+  if (/\.(mid|midi)$/i.test(f.name)) return loadFile(f);
+  if (/^(audio|video)\//.test(f.type) || /\.(mp3|wav|m4a|mp4|mov|webm|ogg|flac)$/i.test(f.name)) return audioToNotes(f);
+  if (/\.(pdf|png|jpe?g|tiff?|bmp|xml|musicxml)$/i.test(f.name) || /^image\//.test(f.type)) return scanSheet(f);
+  say("I don't know how to read that file. Use MIDI, audio/video, a PDF or a photo of sheet music.", true);
+}
+
+// ---------- Library (IndexedDB; falls back to memory if the browser blocks storage) ----------
+const memLib = new Map();
+let dbPromise = null;
+const openDb = () => dbPromise || (dbPromise = new Promise((res, rej) => {
+  try { const r = indexedDB.open("waterfall-notes", 1); r.onupgradeneeded = () => r.result.createObjectStore("songs", { keyPath: "id" }); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }
+  catch (e) { rej(e); }
+}));
+// Runs fn(store) in a transaction; resolves with the request result, or null if storage is unavailable.
+async function dbTx(mode, fn) {
+  try {
+    const d = await openDb();
+    return await new Promise((res, rej) => { const t = d.transaction("songs", mode); const r = fn(t.objectStore("songs")); t.oncomplete = () => res(r.result === undefined ? true : r.result); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error); });
+  } catch (e) { return null; }
+}
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
+async function libAll() { const r = await dbTx("readonly", s => s.getAll()); const list = Array.isArray(r) ? r : [...memLib.values()]; return list.sort((a, b) => b.updated - a.updated); }
+async function libPut(rec_) { if ((await dbTx("readwrite", s => s.put(rec_))) === null) memLib.set(rec_.id, rec_); }
+async function libDel(id) { memLib.delete(id); await dbTx("readwrite", s => s.delete(id)); }
+async function saveCurrent() {
+  if (!song.base.length && !song.layers.length) return false;
+  song.id = song.id || uid(); song.created = song.created || Date.now();
+  let end = 0, count = song.base.length; for (const n of song.base) end = Math.max(end, n.t + n.d);
+  for (const L of song.layers) { count += L.notes.length; for (const n of L.notes) end = Math.max(end, n.t + n.d); }
+  await libPut({ id: song.id, name: song.name, created: song.created, updated: Date.now(), bpm: song.bpm, base: song.base,
+                 layers: JSON.parse(JSON.stringify(song.layers)), transpose: S.transpose, count, dur: end });
+  return true;
+}
+const NOTE_ICON = '<svg viewBox="0 0 24 24"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg>';
+async function renderLibrary() {
+  const box = $("libList"), list = await libAll();
+  if (!list.length) { box.innerHTML = '<div class="empty">No songs yet. Make one from <a href="#/create" style="color:var(--accent)">Create</a>: a MIDI file, a recording, sheet music, or play it in.</div>'; return; }
+  box.innerHTML = "";
+  for (const r of list) {
+    const row = document.createElement("div"); row.className = "lrow";
+    const when = new Date(r.updated).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+    row.innerHTML = `<div class="ic">${NOTE_ICON}</div><div class="grow"><div class="nm"></div><div class="meta">${r.count} notes · ${fmt(r.dur)} · ${when}</div></div>` +
+      `<button data-act="open">Open</button><button data-act="del" aria-label="Delete">Delete</button>`;
+    row.querySelector(".nm").textContent = r.name;   // textContent: names come from file names
+    row.querySelector('[data-act="open"]').onclick = () => { loadSong(r); go("practice"); };
+    row.querySelector('[data-act="del"]').onclick = async () => { if (confirm("Delete “" + r.name + "” from your library?")) { await libDel(r.id); if (song.id === r.id) song.id = null; renderLibrary(); } };
+    box.appendChild(row);
+  }
+}
+
+// ---------- Pages ----------
+const ROUTES = ["library", "create", "practice", "scan"];
+const go = r => { location.hash = "#/" + r; };
+function route() {
+  const m = location.hash.match(/#\/(\w+)/), cur = m && ROUTES.includes(m[1]) ? m[1] : "create";
+  for (const r of ROUTES) $("v-" + r).classList.toggle("show", r === cur);
+  document.querySelectorAll(".navi").forEach(a => a.classList.toggle("cur", a.dataset.r === cur));
+  if (cur !== "practice") { if (rec.on) stopRec(); pause(); }
+  if (cur === "library") renderLibrary();
+  if (cur === "scan") checkScanner();
+  if (cur === "practice") { requestAnimationFrame(resize); if (!song.notes.length && !song.layers.length) { $("hint").style.display = ""; $("hint").textContent = "Open a song from Library or Create"; } }
+  if (cur === "create" || cur === "scan") say("");
+}
+addEventListener("hashchange", route);
+async function checkScanner() {
+  const el = $("scanState");
+  try { const t = await (await fetch("/scan/status")).text(); el.textContent = t === "ready" ? "Scanner ready" : "Scanner (Audiveris) is not installed. MusicXML files still work."; }
+  catch (e) { el.textContent = "Start the helper to scan photos and PDFs: python falling-note-proto/scan_server.py"; }
+}
+
+// ---------- Create ----------
+function addTune(name, bpm, mel, bass) {   // [midi, startBeat, beats]; bass is [midi, startBeat, beats] too
+  const beat = 60 / bpm, notes = [];
+  for (const [m, b, d] of mel) notes.push({ m, t: b * beat, d: d * beat * 0.95, v: 0.8, h: 0 });
+  for (const [m, b, d] of bass) notes.push({ m, t: b * beat, d: d * beat * 0.95, v: 0.6, h: 1 });
+  return { notes: notes.sort((a, b) => a.t - b.t), bpm, name };
+}
+function buildTwinkle() {
+  const seq = [60, 60, 67, 67, 69, 69, [67, 2], 65, 65, 64, 64, 62, 62, [60, 2], 67, 67, 65, 65, 64, 64, [62, 2], 67, 67, 65, 65, 64, 64, [62, 2], 60, 60, 67, 67, 69, 69, [67, 2], 65, 65, 64, 64, 62, 62, [60, 2]];
+  const mel = []; let b = 0;
+  for (const s of seq) { const [m, d] = Array.isArray(s) ? s : [s, 1]; mel.push([m, b, d]); b += d; }
+  const bass = []; for (let i = 0; i < b; i += 4) bass.push([i % 8 === 0 ? 48 : 43, i, 4]);
+  return addTune("Twinkle Twinkle Little Star", 100, mel, bass);
+}
+const STARTERS = [["Ode to Joy", buildDemo], ["Twinkle Twinkle Little Star", buildTwinkle]];
+for (const [label, make] of STARTERS) {
+  const b = document.createElement("button"); b.className = "chipb";
+  b.innerHTML = '<svg viewBox="0 0 24 24"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="2.5"/><circle cx="17" cy="16" r="2.5"/></svg>' + label;
+  b.onclick = () => importSong(make()); $("startChips").appendChild(b);
+}
+const extFor = ct => ({ "audio/mpeg": ".mp3", "audio/wav": ".wav", "audio/x-wav": ".wav", "audio/midi": ".mid", "audio/mid": ".mid", "audio/mp4": ".m4a", "video/mp4": ".mp4", "audio/ogg": ".ogg",
+  "application/pdf": ".pdf", "image/png": ".png", "image/jpeg": ".jpg", "application/xml": ".xml", "text/xml": ".xml", "application/vnd.recordare.musicxml+xml": ".musicxml" })[(ct || "").split(";")[0].trim()] || "";
+async function handleLink(raw) {
+  const text = raw.trim(); if (!text) return;
+  let url; try { url = new URL(/^[a-z]+:\/\//i.test(text) ? text : "https://" + text); } catch (e) { say("That doesn't look like a link.", true); return; }
+  if (!/^https?:$/.test(url.protocol)) { say("Only http and https links work.", true); return; }
+  if (/(^|\.)(youtube\.com|youtu\.be|instagram\.com|tiktok\.com|facebook\.com|fb\.watch|x\.com|twitter\.com)$/i.test(url.hostname)) {
+    say("Links to YouTube, Instagram and similar sites can't be downloaded here because their terms don't allow it. Save the recording yourself and use Choose File.", true); return;
+  }
+  say("Fetching the file…");
+  let r; try { r = await fetch("/fetch?url=" + encodeURIComponent(url.href)); } catch (e) { say("The local helper isn't running. Start it with: python falling-note-proto/scan_server.py", true); return; }
+  if (!r.ok) { say((await r.text()).split("\n")[0], true); return; }
+  const blob = await r.blob(), ct = r.headers.get("Content-Type") || "";
+  let name = decodeURIComponent(url.pathname.split("/").pop() || "download");
+  if (!/\.\w{2,8}$/.test(name)) name += extFor(ct);
+  openAny(new File([blob], name, { type: ct.split(";")[0] }));
+}
+$("linkGo").onclick = () => handleLink($("linkIn").value);
+$("linkIn").addEventListener("keydown", e => { if (e.key === "Enter") handleLink($("linkIn").value); });
+$("anyFile").onchange = e => { if (e.target.files[0]) openAny(e.target.files[0]); e.target.value = ""; };
+$("scanPageFile").onchange = e => { if (e.target.files[0]) scanSheet(e.target.files[0]); e.target.value = ""; };
+$("recNew").onclick = async () => {
+  await connectKeyboard();
+  if (!midiIns.size) { say("Connect a MIDI keyboard first. Allow MIDI access when the browser asks (Chrome or Edge).", true); return; }
+  loadSong({ notes: [], bpm: 100, name: "New recording" }); go("practice"); startRec();
+};
+$("saveLib").onclick = async () => { const ok = await saveCurrent(); const b = $("saveLib"); b.textContent = ok ? "Saved ✓" : "Nothing to save"; setTimeout(() => { b.textContent = "Save"; }, 1600); };
+const bumpTranspose = d => { S.transpose = Math.max(-12, Math.min(12, S.transpose + d)); $("trVal").textContent = trLabel(); };
+$("trDown").onclick = () => bumpTranspose(-1);
+$("trUp").onclick = () => bumpTranspose(1);
+$("trVal").onclick = () => { S.transpose = 0; $("trVal").textContent = trLabel(); };
+$("trVal").title = "Click to reset";
 $("play").onclick = () => { if (rec.on) stopRec(); else S.playing ? pause() : play(); };
 $("restart").onclick = () => seek(S.loopOn && S.loopA != null ? S.loopA : 0);
-$("demo").onclick = () => loadSong(buildDemo());
-$("file").onchange = e => { if (e.target.files[0]) loadFile(e.target.files[0]); e.target.value = ""; };
 $("speed").onchange = e => setSpeed(parseFloat(e.target.value));
 $("look").onchange = e => { S.look = e.target.value; };
 $("hands").onchange = e => { S.hands = e.target.value; resetSched(pos()); };
@@ -701,23 +935,21 @@ $("loopOn").onclick = () => { S.loopOn = !S.loopOn; syncUI(); };
 $("seek").addEventListener("input", e => { seeking = true; seek(e.target.value / 1000 * song.dur); });
 $("seek").addEventListener("change", () => { seeking = false; });
 addEventListener("keydown", e => {
-  if (e.target.tagName === "SELECT") return;
+  if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT" && e.target.type === "text" || !$("v-practice").classList.contains("show")) return;
   if (e.code === "Space") { e.preventDefault(); if (rec.on) stopRec(); else S.playing ? pause() : play(); }
   else if (e.code === "ArrowLeft") seek(pos() - 2);
   else if (e.code === "ArrowRight") seek(pos() + 2);
   else if (e.code === "Home") seek(0);
 });
-const stage = $("stage");
-["dragenter", "dragover"].forEach(ev => stage.addEventListener(ev, e => { e.preventDefault(); stage.classList.add("drag"); }));
-["dragleave", "drop"].forEach(ev => stage.addEventListener(ev, e => { e.preventDefault(); stage.classList.remove("drag"); }));
-stage.addEventListener("drop", e => {
-  const f = e.dataTransfer.files[0]; if (!f) return;
-  if (/\.(mid|midi)$/i.test(f.name)) loadFile(f);
-  else if (/^(audio|video)\//.test(f.type) || /\.(mp3|wav|m4a|mp4|mov|webm|ogg|flac)$/i.test(f.name)) audioToNotes(f);
-  else scanSheet(f);
-});
+function wireDrop(el, handler) {
+  ["dragenter", "dragover"].forEach(ev => el.addEventListener(ev, e => { e.preventDefault(); el.classList.add("drag"); }));
+  el.addEventListener("dragleave", e => { e.preventDefault(); el.classList.remove("drag"); });
+  el.addEventListener("drop", e => { e.preventDefault(); el.classList.remove("drag"); const f = e.dataTransfer.files[0]; if (f) handler(f); });
+}
+wireDrop($("stage"), openAny); wireDrop($("createDrop"), openAny); wireDrop($("scanDrop"), scanSheet);
+new ResizeObserver(resize).observe($("stage"));   // the stage has no size while another page is showing
 
-resize(); syncUI(); loadSong(buildDemo()); requestAnimationFrame(draw);
+resize(); syncUI(); route(); requestAnimationFrame(draw);
 </script>
 </body>
 </html>
