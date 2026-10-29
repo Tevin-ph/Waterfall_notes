@@ -20,6 +20,8 @@ Then open http://localhost:8765 in Chrome or Edge.
 ## Ways to bring in a song
 
 - MIDI file
+- **Falling-notes videos (exact):** for a video that shows a piano keyboard with falling notes (Synthesia style), the app reads the notes off the picture by watching which keys light up (`picture.js`). It finds the keyboard, works out which key is which from the black-key pattern, and records when each key changes colour. Hands come from the two key colours. Falls back to listening if the video isn't that kind. If the octave is guessed wrong, use Edit notes: select all, then -8va / +8va.
+- **Edit notes** (`editor.js`): a piano roll for fixing any song. Click to select, drag to move, drag the right end to resize, double-click to add, Delete to remove, Ctrl+Z / Ctrl+Y, assign hands, shift by semitone or octave, remove blips. The video plays in the corner so you can check against it. Edits save to your library.
 - Audio or video file, two detectors:
   - **Piano model (most accurate, optional):** ByteDance's [piano transcription](https://github.com/qiuqiangkong/piano_transcription_inference) model, run by the local helper. One-time setup, about 1-2 GB: `powershell -ExecutionPolicy Bypass -File falling-note-proto\setup_piano.ps1`. About 1.7x real time on a laptop CPU (a 1-minute song takes under 2 minutes). It is the default once installed.
   - **In the browser:** Spotify's [Basic Pitch](https://github.com/spotify/basic-pitch) (Apache-2.0, bundled in `falling-note-proto/vendor`). Used when the piano model isn't installed or fails; less accurate on piano.

@@ -142,6 +142,22 @@
   .stepper button { border:0; border-radius:0; padding:7px 11px; }
   .stepper span { min-width:74px; text-align:center; font-variant-numeric:tabular-nums; color:var(--ink); }
   .lbl { color:var(--dim); font-size:12px; }
+  /* note editor */
+  #v-edit.show { display:flex; flex-direction:column; overflow:hidden; }
+  #eHead { display:flex; flex-wrap:wrap; align-items:center; gap:8px 18px; padding:14px 22px 6px; }
+  #eTitle { font-size:20px; font-weight:500; margin-right:auto; }
+  .eGrp { display:flex; gap:6px; }
+  .eGrp button { padding:6px 12px; }
+  .dotR, .dotL { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:7px; }
+  .dotR { background:var(--right); } .dotL { background:var(--left); }
+  #eInfo { padding:0 22px 8px; color:var(--dim); font-size:13px; }
+  #rollBox { position:relative; flex:1; min-height:0; margin:0 22px; border:1px solid var(--line); border-radius:14px; overflow:hidden; background:#07070a; }
+  #roll { position:absolute; inset:0; width:100%; height:100%; display:block; touch-action:none; cursor:default; }
+  #eVideo { position:absolute; top:34px; right:12px; width:min(26%, 300px); aspect-ratio:16/9; object-fit:contain; background:#000; border-radius:10px; border:1px solid var(--line2); box-shadow:0 10px 30px rgba(0,0,0,.5); pointer-events:none; }
+  #eVideo[hidden] { display:none; }
+  #rollScroll { margin:8px 22px 0; width:calc(100% - 44px); accent-color:var(--accent); }
+  #eDock { display:flex; align-items:center; gap:16px; padding:8px 22px 16px; }
+  #eDock .tiny { color:var(--dim); font-size:12.5px; }
   .menuWrap { position:relative; }
   #settingsPop { position:absolute; right:0; bottom:calc(100% + 12px); width:310px; background:var(--card); border:1px solid var(--line2); border-radius:14px; padding:10px 16px 14px; box-shadow:0 18px 50px rgba(0,0,0,.65); z-index:40; }
   #settingsPop[hidden] { display:none; }
@@ -170,6 +186,7 @@
     <div class="grpl">Tools</div>
     <a class="navi" href="#/practice" data-r="practice"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M8 5v14M12 5v14M16 5v14"/></svg><span>Practice</span></a>
     <a class="navi" href="#/scan" data-r="scan"><svg viewBox="0 0 24 24"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/></svg><span>Scan sheet music</span></a>
+    <a class="navi" href="#/edit" data-r="edit"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span>Edit notes</span></a>
     <div class="spacer"></div>
     <div class="me"><b>Local library</b>Saved on this computer</div>
   </aside>
@@ -200,7 +217,7 @@
       <label class="rights"><input type="checkbox" id="rights"> I own the rights to this media or have permission to use it</label>
       <label class="rights sens"><span>Note detail</span>
         <select id="sens" title="How many notes to look for in a recording or video">
-          <option value="piano">Piano model (most accurate)</option><option value="balanced">Balanced (browser only)</option><option value="more">More notes (adds some extras)</option><option value="fewer">Fewer notes, cleaner</option>
+          <option value="auto">Automatic (read the picture if it's a falling-notes video, else listen)</option><option value="picture">Read the picture only</option><option value="piano">Listen: piano model (most accurate)</option><option value="balanced">Listen: balanced (browser only)</option><option value="more">More notes (adds some extras)</option><option value="fewer">Fewer notes, cleaner</option>
         </select>
       </label>
       <div id="createMsg" aria-live="polite"></div>
@@ -256,6 +273,40 @@
         <div class="dsub">PDF &middot; photo of sheet music &middot; MusicXML file</div>
       </div>
     </div></section>
+
+    <!-- EDIT -->
+    <section id="v-edit" class="view">
+      <div id="eHead">
+        <div id="eTitle">Edit notes</div>
+        <div class="eGrp">
+          <button id="eUndo" title="Undo (Ctrl+Z)">Undo</button><button id="eRedo" title="Redo (Ctrl+Y)">Redo</button>
+        </div>
+        <div class="eGrp">
+          <button id="eDelete" title="Delete selected notes (Delete)">Delete</button>
+          <button id="eRight" title="Make the selected notes right hand"><span class="dotR"></span>Right</button>
+          <button id="eLeft" title="Make the selected notes left hand"><span class="dotL"></span>Left</button>
+        </div>
+        <div class="eGrp">
+          <button id="eDown" title="Down a semitone (Arrow down)">&minus;1</button><button id="eUp" title="Up a semitone (Arrow up)">+1</button>
+          <button id="eOctDown" title="Down an octave (Shift + Arrow down)">&minus;8va</button><button id="eOctUp" title="Up an octave (Shift + Arrow up)">+8va</button>
+        </div>
+        <div class="eGrp">
+          <button id="eClean" title="Remove very short notes (under 50 ms)">Remove blips</button>
+          <button id="eZoomOut" aria-label="Zoom out">&minus;</button><button id="eZoomIn" aria-label="Zoom in">+</button>
+          <button id="eSave" title="Save to your library">Save</button>
+        </div>
+      </div>
+      <div id="eInfo">Nothing open. Open a song from Library or Create.</div>
+      <div id="rollBox">
+        <canvas id="roll"></canvas>
+        <video id="eVideo" playsinline preload="auto" hidden></video>
+      </div>
+      <input id="rollScroll" type="range" min="0" max="1000" value="0" aria-label="Scroll through the song">
+      <div id="eDock">
+        <button id="ePlay" class="primary">Play</button>
+        <span class="tiny">Double-click to add a note &middot; drag a note to move it &middot; drag its right end to change its length &middot; Delete removes &middot; Space plays</span>
+      </div>
+    </section>
 
     <!-- PRACTICE -->
     <section id="v-practice" class="view">
@@ -320,7 +371,7 @@ const handOfAuto = m => (m < 60 ? 1 : 0);
 function rebuild() {
   const all = song.base.slice();
   for (const L of song.layers) if (!L.muted)
-    for (const n of L.notes) all.push({ m: n.m, t: n.t, d: n.d, v: n.v, h: L.hand === "auto" ? handOfAuto(n.m) : +L.hand, layer: L.id });
+    for (const n of L.notes) all.push({ m: n.m, t: n.t, d: n.d, v: n.v, h: L.hand === "auto" ? handOfAuto(n.m) : +L.hand, layer: L.id, id: n.id });
   all.sort((a, b) => a.t - b.t);
   let end = 0; for (const n of all) if (n.t + n.d > end) end = n.t + n.d;
   song.notes = all;
@@ -511,6 +562,7 @@ const S = { playing: false, speed: 1, anchorCtx: 0, anchorPos: 0, nextIdx: 0, ne
 const LOOKAHEAD = 0.25; // seconds of audio scheduled ahead
 const rec = { on: false, notes: [], open: new Map(), count: 0 };
 S.letters = true; S.transpose = 0; S.synth = true; S.showVideo = true; S.zoom = "auto";
+let editorUI = null;     // set once editor.js has loaded; declared up here because syncUI() runs at start-up
 
 function pos() {
   if (!S.playing) return S.anchorPos;
@@ -867,6 +919,7 @@ function syncUI() {
   $("letters").classList.toggle("on", S.letters);
   $("rec").classList.toggle("rec", rec.on); $("rec").innerHTML = rec.on ? "&#9632; Stop" : ico("circle") + "Record";
   $("loopA").classList.toggle("on", S.loopA != null); $("loopB").classList.toggle("on", S.loopB != null);
+  if (editorUI) editorUI.setPlaying(S.playing);
 }
 // Open a song in the player. s can be a fresh import ({notes,bpm,name}) or a saved library record ({base,layers,...}).
 function loadSong(s) {
@@ -889,10 +942,10 @@ async function importSong(s, autoplay) {
 
 // ---- the uploaded video, kept in step with the notes ----
 function setVideo(blob) {
-  const v = $("pVideo");
+  const v = $("pVideo"), ev = $("eVideo");
   if (v.dataset.url) URL.revokeObjectURL(v.dataset.url);
-  if (blob) { const u = URL.createObjectURL(blob); v.dataset.url = u; v.src = u; } else { delete v.dataset.url; v.removeAttribute("src"); v.load(); }
-  v.hidden = true;                       // revealed by vidVis() only once the video really has a picture
+  if (blob) { const u = URL.createObjectURL(blob); v.dataset.url = u; v.src = u; ev.src = u; } else { delete v.dataset.url; v.removeAttribute("src"); v.load(); ev.removeAttribute("src"); ev.load(); }
+  v.hidden = true; ev.hidden = true;     // revealed by vidVis() only once the video really has a picture
   $("vidToggle").hidden = true; $("synthToggle").hidden = !blob;
   S.synth = !blob;                       // with a video, its own sound plays; piano sound is optional
   $("synthToggle").classList.toggle("on", S.synth);
@@ -900,7 +953,7 @@ function setVideo(blob) {
 // Show the video panel only when the file really has a picture the browser can draw (no empty black box).
 function vidVis() {
   const v = $("pVideo"), pic = !!song.video && v.videoWidth > 0;
-  v.hidden = !(pic && S.showVideo); $("vidToggle").hidden = !pic;
+  v.hidden = !(pic && S.showVideo); $("eVideo").hidden = !(pic && S.showVideo); $("vidToggle").hidden = !pic;
 }
 $("pVideo").addEventListener("loadedmetadata", vidVis);
 $("pVideo").addEventListener("error", () => {   // the browser can't play this video (e.g. a phone format): use the piano sound, hide the panel
@@ -908,7 +961,9 @@ $("pVideo").addEventListener("error", () => {   // the browser can't play this v
   S.synth = true; $("synthToggle").classList.add("on"); vidVis();
 });
 function videoSync(p) {
-  const v = $("pVideo"); if (!song.video || !v.src || v.readyState < 1) return;
+  const inEdit = $("v-edit").classList.contains("show"), v = inEdit ? $("eVideo") : $("pVideo"), other = inEdit ? $("pVideo") : $("eVideo");
+  if (other.src && !other.paused) other.pause();
+  if (!song.video || !v.src || v.readyState < 1) return;
   v.muted = S.synth; if (v.playbackRate !== S.speed) v.playbackRate = S.speed;
   const running = S.playing && ac && ac.currentTime >= S.anchorCtx;
   if (running) {
@@ -970,9 +1025,26 @@ async function pianoNotes(mono16k) {
   finally { clearInterval(tick); }
 }
 // Audio/video file -> notes. Piano model in the local helper when set up; otherwise Spotify Basic Pitch in the browser (Apache-2.0, bundled in ./vendor).
-let transcriber = null;
+let transcriber = null, pianoReady = false;
 async function audioToNotes(f) {
   try {
+    const mode = $("sens").value, isVid = /^video\//.test(f.type) || /\.(mp4|mov|webm|m4v)$/i.test(f.name);
+    // A falling-notes video shows the notes on screen: read them off the picture (exact), and only listen if that isn't possible.
+    if (isVid && (mode === "auto" || mode === "picture")) {
+      try {
+        const { readPicture } = await import("./picture.js");
+        const r = await readPicture(f, (p, label) => dock(label, p));
+        dock("Done", 1);
+        await importSong({ notes: r.notes, bpm: 100, name: f.name.replace(/\.[^.]+$/, ""), video: f }, true);
+        const i = r.info;
+        dock("Read " + r.notes.length + " notes from the picture (" + i.keys + " keys)." + (i.octaveGuessed ? " If it sounds an octave off, use Edit notes: select all, then −8va or +8va." : ""), 1);
+        setTimeout(dockHide, i.octaveGuessed ? 9000 : 2500);
+        return;
+      } catch (e) {
+        if (mode === "picture") throw e;
+        console.warn("picture reader:", e.message); dock("This doesn't look like a falling-notes video, so I'll listen to the sound instead…", 0.05);
+      }
+    }
     dock("Reading the sound…", 0.05);
     const raw = await f.arrayBuffer();
     let dec;
@@ -986,7 +1058,7 @@ async function audioToNotes(f) {
     };
     // Best accuracy: the piano-only model running in the local helper. If it isn't set up, fall through to the in-browser detector.
     let good = null;
-    if ($("sens").value === "piano") {
+    if (mode === "piano" || (mode === "auto" && pianoReady)) {
       good = await pianoNotes(await resampled(16000));
       if (!good) say("The piano model isn't available, so I used the general detector instead.", true);
     }
@@ -997,7 +1069,7 @@ async function audioToNotes(f) {
     // Note detail. Measured on a fast test passage (40 notes, 0.1 s apart): Balanced found 75-80% with 94% correct; More found 85% but
     // only 61% correct (lots of false notes). Notes under ~0.12 s are normal in fast music, so they must not be filtered out.
     const PRESETS = { more: { onset: 0.35, frame: 0.22, minLen: 4, minDur: 0.045 }, balanced: { onset: 0.5, frame: 0.3, minLen: 5, minDur: 0.06 }, fewer: { onset: 0.65, frame: 0.4, minLen: 7, minDur: 0.12 } };
-    const P = PRESETS[$("sens").value] || PRESETS.balanced;      // "piano" (model unavailable) uses Balanced
+    const P = PRESETS[mode] || PRESETS.balanced;      // "auto" / "piano" (model unavailable) use Balanced
     const notes = await transcriber(mono, "vendor/model.json", p => dock("Turning the sound into notes… " + Math.round(p * 100) + "%", 0.2 + 0.8 * p), P);
     // Drop tiny blips, and only the obvious overtone ghosts: a short, much quieter note an octave/12th/2 octaves above a longer
     // note that starts at the same moment. Real octave doublings (similar loudness) are kept.
@@ -1008,8 +1080,7 @@ async function audioToNotes(f) {
       .map(n => ({ ...n, h: handOfAuto(n.m) })).sort((a, b) => a.t - b.t);
     }
     if (!good.length) throw new Error("No notes were detected. Piano or other clear single instruments work best.");
-    const isVideo = /^video\//.test(f.type) || /\.(mp4|mov|webm|m4v)$/i.test(f.name);
-    dock("Done", 1); await importSong({ notes: good, bpm: 100, name: f.name.replace(/\.[^.]+$/, ""), video: isVideo ? f : null }, true);   // a video is kept and plays with the notes
+    dock("Done", 1); await importSong({ notes: good, bpm: 100, name: f.name.replace(/\.[^.]+$/, ""), video: isVid ? f : null }, true);   // a video is kept and plays with the notes
     setTimeout(dockHide, 600);
   } catch (e) { dockHide(); say("Could not turn that into notes: " + e.message, true); }
 }
@@ -1067,13 +1138,14 @@ async function renderLibrary() {
 }
 
 // ---------- Pages ----------
-const ROUTES = ["library", "create", "practice", "scan"];
+const ROUTES = ["library", "create", "practice", "scan", "edit"];
 const go = r => { location.hash = "#/" + r; };
 function route() {
   const m = location.hash.match(/#\/(\w+)/), cur = m && ROUTES.includes(m[1]) ? m[1] : "create";
   for (const r of ROUTES) $("v-" + r).classList.toggle("show", r === cur);
   document.querySelectorAll(".navi").forEach(a => a.classList.toggle("cur", a.dataset.r === cur));
-  if (cur !== "practice") { if (rec.on) stopRec(); pause(); }
+  if (cur !== "practice" && cur !== "edit") { if (rec.on) stopRec(); pause(); }
+  if (cur === "edit" && editorUI) editorUI.enter();
   if (cur !== "create") closeEmbed();
   if (cur === "library") renderLibrary();
   if (cur === "scan") checkScanner();
@@ -1298,8 +1370,17 @@ new ResizeObserver(resize).observe($("stage"));   // the stage has no size while
 resize(); syncUI(); route(); requestAnimationFrame(draw);
 // Use the piano model by default when the helper has it; otherwise start on the in-browser detector.
 fetch("/piano/status").then(r => r.text()).then(t => {
-  if (t.trim() !== "ready") { const o = $("sens").querySelector('option[value="piano"]'); o.textContent = "Piano model (not set up)"; $("sens").value = "balanced"; }
-}).catch(() => { $("sens").value = "balanced"; });
+  pianoReady = t.trim() === "ready";
+  if (!pianoReady) $("sens").querySelector('option[value="piano"]').textContent = "Listen: piano model (not set up)";
+}).catch(() => {});
+// The note editor (editor.js) works through this small interface instead of touching page internals.
+const EDITOR_API = {
+  song: () => song, S, rebuild, resetSched, pos, seek, handOfAuto, renderLayers,
+  save: () => saveCurrent(),
+  togglePlay: () => { if (rec.on) stopRec(); else S.playing ? pause() : play(); },
+  preview: m => { try { ensureAudio(); if (keyGeo[m]) playNote(m, 0.7, ac.currentTime + 0.01, 0.3); } catch (e) {} },
+};
+import("./editor.js").then(m => { editorUI = m.initEditor(EDITOR_API); if (location.hash === "#/edit") editorUI.enter(); }).catch(e => console.warn("editor unavailable:", e));
 // Load the 3D scene after the page is up. If it fails (no WebGL, blocked file), the 2D drawing keeps working.
 import("./vendor/icons.js").then(m => {
   ICONS = m.ICONS;
