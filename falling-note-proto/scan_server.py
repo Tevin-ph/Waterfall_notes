@@ -145,11 +145,11 @@ class PianoWorker:
                 except Exception:
                     pass
 
-    def transcribe(self, wav, out, timeout):
+    def transcribe(self, wav, out, timeout, fast=False):
         with self.lock:
             if self.proc is None or self.proc.poll() is not None:
                 self._start()
-            self.proc.stdin.write(json.dumps({"wav": wav, "out": out}) + "\n")
+            self.proc.stdin.write(json.dumps({"wav": wav, "out": out, "fast": bool(fast)}) + "\n")
             self.proc.stdin.flush()
             reply = self._next(timeout)
             if reply is None:
@@ -162,7 +162,7 @@ class PianoWorker:
 PIANO = PianoWorker()
 
 
-def run_piano(wav_bytes):
+def run_piano(wav_bytes, fast=False):
     st = piano_status()
     if st != "ready":
         return 503, st
@@ -172,7 +172,7 @@ def run_piano(wav_bytes):
         with open(wav, "wb") as f:
             f.write(wav_bytes)
         try:
-            PIANO.transcribe(wav, out, PIANO_TIMEOUT_S)
+            PIANO.transcribe(wav, out, PIANO_TIMEOUT_S, fast)
         except TimeoutError as e:
             return 504, "The piano model took longer than %d minutes." % (PIANO_TIMEOUT_S // 60)
         except Exception as e:
@@ -291,11 +291,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
-        if self.path == "/transcribe-piano":
+        if urllib.parse.urlparse(self.path).path == "/transcribe-piano":
             n = int(self.headers.get("Content-Length") or 0)
             if n <= 0 or n > PIANO_MAX:
                 return self._reply(413, "Audio must be between 1 byte and %d MB." % (PIANO_MAX // 1048576))
-            code, text = run_piano(self.rfile.read(n))
+            fast = (urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("speed") or [""])[0] == "fast"
+            code, text = run_piano(self.rfile.read(n), fast)
             return self._reply(code, text, "application/json; charset=utf-8" if code == 200 else "text/plain; charset=utf-8")
         if self.path != "/scan":
             return self._reply(404, "Not found")
