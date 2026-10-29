@@ -136,6 +136,14 @@
   .stepper button { border:0; border-radius:0; padding:7px 11px; }
   .stepper span { min-width:74px; text-align:center; font-variant-numeric:tabular-nums; color:var(--ink); }
   .lbl { color:var(--dim); font-size:12px; }
+  .menuWrap { position:relative; }
+  #settingsPop { position:absolute; right:0; bottom:calc(100% + 12px); width:310px; background:var(--card); border:1px solid var(--line2); border-radius:14px; padding:10px 16px 14px; box-shadow:0 18px 50px rgba(0,0,0,.65); z-index:40; }
+  #settingsPop[hidden] { display:none; }
+  .srow { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:7px 0; }
+  .srow > span { color:var(--dim); }
+  .srow select { min-width:150px; }
+  .toggles { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; padding-top:14px; border-top:1px solid var(--line); }
+  #settingsBtn[aria-expanded="true"] { background:var(--hover); border-color:#55555e; }
   @media (max-width:820px) {
     #side { width:64px; padding:14px 8px; } .navi span, .grpl, .me, .logo span { display:none; } .navi { justify-content:center; padding:11px 0; }
     h1 { font-size:42px; margin-bottom:28px; } .page { padding:30px 18px; }
@@ -253,16 +261,24 @@
             <option value="0.25">0.25x</option><option value="0.5">0.5x</option><option value="0.75">0.75x</option>
             <option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option>
           </select>
-          <select id="look" title="Look"><option value="flat">Flat</option><option value="spectrum">Spectrum</option></select>
-          <select id="hands" title="Guide hands"><option value="both">Both hands</option><option value="right">Right hand</option><option value="left">Left hand</option></select>
           <span class="sep"></span>
-          <button id="vidToggle" class="on" hidden title="Show or hide the video">Video</button>
-          <button id="synthToggle" hidden title="Play the piano sound instead of the video's own audio">Piano sound</button>
-          <button id="metro">Metronome</button>
-          <button id="countin">Count-in</button>
-          <button id="letters" class="on" title="Show note names on the bars">Letters</button>
+          <button id="loopA" title="Set loop start">A</button><button id="loopB" title="Set loop end">B</button><button id="loopOn">Loop</button>
           <span class="sep"></span>
-          <button id="loopA">A</button><button id="loopB">B</button><button id="loopOn">Loop</button>
+          <div class="menuWrap">
+            <button id="settingsBtn" aria-haspopup="true" aria-expanded="false">Settings</button>
+            <div id="settingsPop" hidden>
+              <label class="srow"><span>Note colors</span><select id="look"><option value="flat">By hand</option><option value="spectrum">By note</option></select></label>
+              <label class="srow"><span>Play along with</span><select id="hands"><option value="both">Both hands</option><option value="right">Right hand</option><option value="left">Left hand</option></select></label>
+              <label class="srow"><span>Piano view</span><select id="zoom"><option value="auto">Zoom to the song</option><option value="full">Full piano</option></select></label>
+              <div class="toggles">
+                <button id="letters" class="on" title="Show note names on the bars">Letters</button>
+                <button id="metro">Metronome</button>
+                <button id="countin">Count-in</button>
+                <button id="vidToggle" class="on" hidden title="Show or hide the video">Video</button>
+                <button id="synthToggle" hidden title="Play the piano sound instead of the video's own audio">Piano sound</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -471,7 +487,7 @@ const S = { playing: false, speed: 1, anchorCtx: 0, anchorPos: 0, nextIdx: 0, ne
             loopA: null, loopB: null, loopOn: false, look: "flat", hands: "both" };
 const LOOKAHEAD = 0.25; // seconds of audio scheduled ahead
 const rec = { on: false, notes: [], open: new Map(), count: 0 };
-S.letters = true; S.transpose = 0; S.synth = true; S.showVideo = true;
+S.letters = true; S.transpose = 0; S.synth = true; S.showVideo = true; S.zoom = "auto";
 
 function pos() {
   if (!S.playing) return S.anchorPos;
@@ -531,13 +547,14 @@ let gl3d = null;   // the 3D scene once it has loaded; until then (or if WebGL f
 // Which keys the 3D view should show: the octaves the song uses (at least 3), after transposing.
 let rangeCache = { key: "", val: [48, 84] };
 function viewRange() {
-  const key = song.notes.length + ":" + (song.notes[0] ? song.notes[0].t : 0) + ":" + S.transpose;
+  const key = song.notes.length + ":" + (song.notes[0] ? song.notes[0].t : 0) + ":" + S.transpose + ":" + S.zoom;
   if (key === rangeCache.key) return rangeCache.val;
+  if (S.zoom === "full") { rangeCache = { key, val: [21, 108] }; return rangeCache.val; }
   let lo = 127, hi = 0;
   for (const n of song.notes) { const m = n.m + S.transpose; if (m < lo) lo = m; if (m > hi) hi = m; }
   if (hi < lo) { lo = 48; hi = 84; }
   lo = Math.max(21, lo - (lo % 12)); hi = Math.min(108, hi + (11 - (hi % 12)));      // whole octaves, C to B
-  while (hi - lo < 35) { if (lo > 21 && (lo - 21 >= 108 - hi || hi >= 108)) lo -= 12; else if (hi < 108) hi += 12; else break; }
+  while (hi - lo < 47) { if (lo > 21 && (lo - 21 >= 108 - hi || hi >= 108)) lo -= 12; else if (hi < 108) hi += 12; else break; }
   rangeCache = { key, val: [lo, hi] }; return rangeCache.val;
 }
 function resize() {
@@ -852,11 +869,21 @@ function setVideo(blob) {
   const v = $("pVideo");
   if (v.dataset.url) URL.revokeObjectURL(v.dataset.url);
   if (blob) { const u = URL.createObjectURL(blob); v.dataset.url = u; v.src = u; } else { delete v.dataset.url; v.removeAttribute("src"); v.load(); }
-  v.hidden = !blob || !S.showVideo;
-  $("vidToggle").hidden = $("synthToggle").hidden = !blob;
+  v.hidden = true;                       // revealed by vidVis() only once the video really has a picture
+  $("vidToggle").hidden = true; $("synthToggle").hidden = !blob;
   S.synth = !blob;                       // with a video, its own sound plays; piano sound is optional
   $("synthToggle").classList.toggle("on", S.synth);
 }
+// Show the video panel only when the file really has a picture the browser can draw (no empty black box).
+function vidVis() {
+  const v = $("pVideo"), pic = !!song.video && v.videoWidth > 0;
+  v.hidden = !(pic && S.showVideo); $("vidToggle").hidden = !pic;
+}
+$("pVideo").addEventListener("loadedmetadata", vidVis);
+$("pVideo").addEventListener("error", () => {   // the browser can't play this video (e.g. a phone format): use the piano sound, hide the panel
+  if (!song.video) return;
+  S.synth = true; $("synthToggle").classList.add("on"); vidVis();
+});
 function videoSync(p) {
   const v = $("pVideo"); if (!song.video || !v.src || v.readyState < 1) return;
   v.muted = S.synth; if (v.playbackRate !== S.speed) v.playbackRate = S.speed;
@@ -1146,9 +1173,15 @@ $("play").onclick = () => { if (rec.on) stopRec(); else S.playing ? pause() : pl
 $("restart").onclick = () => seek(S.loopOn && S.loopA != null ? S.loopA : 0);
 $("speed").onchange = e => setSpeed(parseFloat(e.target.value));
 $("look").onchange = e => { S.look = e.target.value; };
-$("hands").onchange = e => { S.hands = e.target.value; resetSched(pos()); };
+$("zoom").onchange = e => { S.zoom = e.target.value; };
+$("hands").onchange =e => { S.hands = e.target.value; resetSched(pos()); };
 $("letters").onclick = () => { S.letters = !S.letters; syncUI(); };
-$("vidToggle").onclick = () => { S.showVideo = !S.showVideo; $("pVideo").hidden = !S.showVideo || !song.video; $("vidToggle").classList.toggle("on", S.showVideo); };
+$("vidToggle").onclick = () => { S.showVideo = !S.showVideo; vidVis(); $("vidToggle").classList.toggle("on", S.showVideo); };
+// Settings menu
+const setMenu = open => { $("settingsPop").hidden = !open; $("settingsBtn").setAttribute("aria-expanded", String(open)); };
+$("settingsBtn").onclick = e => { e.stopPropagation(); setMenu($("settingsPop").hidden); };
+document.addEventListener("click", e => { if (!e.target.closest(".menuWrap")) setMenu(false); });
+document.addEventListener("keydown", e => { if (e.key === "Escape") setMenu(false); });
 $("synthToggle").onclick = () => { S.synth = !S.synth; $("synthToggle").classList.toggle("on", S.synth); resetSched(pos()); };
 $("midiBtn").onclick = connectKeyboard;
 $("rec").onclick = () => rec.on ? stopRec() : startRec();
@@ -1195,7 +1228,7 @@ resize(); syncUI(); route(); requestAnimationFrame(draw);
 // Load the 3D scene after the page is up. If it fails (no WebGL, blocked file), the 2D drawing keeps working.
 import("./vendor/icons.js").then(m => {
   ICONS = m.ICONS;
-  $("restart").innerHTML = ico("rotate-ccw"); $("midiBtn").innerHTML = ico("keyboard") + "Keyboard";
+  $("restart").innerHTML = ico("rotate-ccw"); $("settingsBtn").innerHTML = ico("sliders-horizontal") + "Settings"; $("midiBtn").innerHTML = ico("keyboard") + "Keyboard";
   $("saveMidi").innerHTML = ico("download") + "Export .mid"; $("saveLib").dataset.label = "Save"; $("saveLib").innerHTML = ico("save") + "Save";
   syncUI();
 }).catch(() => {});

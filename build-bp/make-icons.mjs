@@ -1,6 +1,6 @@
 // Reads a few Lucide icons (ISC license) and writes them as { name: "<inner svg markup>" } for the app to inline.
 import { readFileSync, writeFileSync } from "node:fs";
-const names = ["play", "pause", "rotate-ccw", "save", "download", "keyboard", "circle", "music", "timer", "repeat", "type", "library", "plus", "scan", "piano"];
+const names = ["play", "pause", "rotate-ccw", "save", "download", "keyboard", "circle", "music", "timer", "repeat", "type", "library", "plus", "scan", "piano", "sliders-horizontal"];
 const out = {};
 for (const n of names) {
   let svg;
