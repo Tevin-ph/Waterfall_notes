@@ -7,15 +7,18 @@ Needs Audiveris (https://github.com/Audiveris/audiveris). Set AUDIVERIS to its e
 Runs only on 127.0.0.1.
 """
 import glob
+import json
 import http.server
 import ipaddress
 import os
+import queue
 import re
 import shutil
 import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import urllib.parse
 import zipfile
 
@@ -73,6 +76,109 @@ def run_scan(data, filename):
                 return 200, f.read().decode("utf-8", "replace")
         tail = (proc.stdout + "\n" + proc.stderr).strip()[-600:]
         return 422, "Audiveris could not read any music from that image. Try a cleaner, flatter, higher-resolution scan.\n" + tail
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+# ---- piano-only transcription model (runs in its own Python environment so PyTorch stays out of this server) ----
+PIANO_PY = os.environ.get("PIANO_PYTHON") or os.path.join(os.path.expanduser("~"), ".waterfall-notes", "piano-venv",
+                                                           "Scripts" if os.name == "nt" else "bin", "python.exe" if os.name == "nt" else "python")
+PIANO_CKPT = os.path.join(os.path.expanduser("~"), "piano_transcription_inference_data", "note_F1=0.9677_pedal_F1=0.9186.pth")
+PIANO_WORKER = os.path.join(HERE, "piano_worker.py")
+PIANO_MAX = 60 * 1024 * 1024
+PIANO_TIMEOUT_S = 900
+
+
+def piano_status():
+    if not os.path.exists(PIANO_PY):
+        return "missing: the piano environment is not installed"
+    if not os.path.exists(PIANO_CKPT) or os.path.getsize(PIANO_CKPT) < 1.6e8:
+        return "missing: the piano model file is not downloaded"
+    return "ready"
+
+
+class PianoWorker:
+    """Keeps one `piano_worker.py --serve` process alive, so PyTorch and the 165 MB model load once instead of on every request.
+    Requests are handled one at a time (the model uses all the CPU)."""
+
+    def __init__(self):
+        self.proc = None
+        self.lines = queue.Queue()
+        self.lock = threading.Lock()
+
+    def _reader(self, proc, q):
+        for line in proc.stdout:
+            q.put(line)
+        q.put(None)                                   # the process ended
+
+    def _next(self, timeout):
+        try:
+            line = self.lines.get(timeout=timeout)
+        except queue.Empty:
+            return None
+        return json.loads(line) if line and line.strip() else None
+
+    def stop(self):
+        if self.proc is not None:
+            try:
+                self.proc.kill()
+            except OSError:
+                pass
+        self.proc = None
+
+    def _start(self):
+        self.lines = queue.Queue()
+        self.proc = subprocess.Popen([PIANO_PY, PIANO_WORKER, "--serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                     stderr=subprocess.DEVNULL, text=True, bufsize=1, cwd=HERE)
+        threading.Thread(target=self._reader, args=(self.proc, self.lines), daemon=True).start()
+        first = self._next(300)
+        if not first or not first.get("ready"):
+            self.stop()
+            raise RuntimeError((first or {}).get("error") or "the piano model did not start")
+
+    def warm(self):
+        """Load the model ahead of the first request."""
+        with self.lock:
+            if piano_status() == "ready" and (self.proc is None or self.proc.poll() is not None):
+                try:
+                    self._start()
+                except Exception:
+                    pass
+
+    def transcribe(self, wav, out, timeout):
+        with self.lock:
+            if self.proc is None or self.proc.poll() is not None:
+                self._start()
+            self.proc.stdin.write(json.dumps({"wav": wav, "out": out}) + "\n")
+            self.proc.stdin.flush()
+            reply = self._next(timeout)
+            if reply is None:
+                self.stop()
+                raise TimeoutError("the piano model stopped or took too long")
+            if not reply.get("ok"):
+                raise RuntimeError(reply.get("error") or "failed")
+
+
+PIANO = PianoWorker()
+
+
+def run_piano(wav_bytes):
+    st = piano_status()
+    if st != "ready":
+        return 503, st
+    work = tempfile.mkdtemp(prefix="piano_")
+    try:
+        wav, out = os.path.join(work, "in.wav"), os.path.join(work, "out.json")
+        with open(wav, "wb") as f:
+            f.write(wav_bytes)
+        try:
+            PIANO.transcribe(wav, out, PIANO_TIMEOUT_S)
+        except TimeoutError as e:
+            return 504, "The piano model took longer than %d minutes." % (PIANO_TIMEOUT_S // 60)
+        except Exception as e:
+            return 500, "The piano model failed: " + str(e)[:300]
+        with open(out, "r", encoding="utf-8") as f:
+            return 200, f.read()
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -162,6 +268,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):
+        if self.path == "/transcribe-piano":
+            n = int(self.headers.get("Content-Length") or 0)
+            if n <= 0 or n > PIANO_MAX:
+                return self._reply(413, "Audio must be between 1 byte and %d MB." % (PIANO_MAX // 1048576))
+            code, text = run_piano(self.rfile.read(n))
+            return self._reply(code, text, "application/json; charset=utf-8" if code == 200 else "text/plain; charset=utf-8")
         if self.path != "/scan":
             return self._reply(404, "Not found")
         n = int(self.headers.get("Content-Length") or 0)
@@ -172,6 +284,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self._reply(code, text, "application/xml; charset=utf-8" if code == 200 else "text/plain; charset=utf-8")
 
     def do_GET(self):
+        if self.path == "/piano/status":
+            return self._reply(200, piano_status())
         if self.path == "/scan/status":
             return self._reply(200, "ready" if find_audiveris() else "missing")
         if self.path.startswith("/fetch?"):
@@ -188,6 +302,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    threading.Thread(target=PIANO.warm, daemon=True).start()      # load the piano model in the background so the first request is fast
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     print("Serving %s on http://127.0.0.1:%d (Audiveris: %s)" % (HERE, PORT, find_audiveris() or "not found"), flush=True)
     try:
