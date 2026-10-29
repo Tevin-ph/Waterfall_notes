@@ -227,7 +227,7 @@
       <label class="rights"><input type="checkbox" id="rights"> I own the rights to this media or have permission to use it</label>
       <label class="rights sens"><span>Note detail</span>
         <select id="sens" title="How many notes to look for in a recording or video">
-          <option value="auto">Automatic (read the picture if it's a falling-notes video, else listen)</option><option value="picture">Read the picture only</option><option value="piano">Listen: piano model (most accurate)</option><option value="balanced">Listen: balanced (browser only)</option><option value="more">More notes (adds some extras)</option><option value="fewer">Fewer notes, cleaner</option>
+          <option value="auto">Automatic (read the picture if it's a falling-notes video, else listen)</option><option value="picture">Read the picture only</option><option value="score">Read the sheet music in the video</option><option value="piano">Listen: piano model (most accurate)</option><option value="balanced">Listen: balanced (browser only)</option><option value="more">More notes (adds some extras)</option><option value="fewer">Fewer notes, cleaner</option>
         </select>
       </label>
       <label class="rights sens"><span>Piano model speed</span>
@@ -1008,6 +1008,15 @@ function say(msg, isErr) {
   }
   for (const id of ["createMsg", "scanMsg", "embedMsg"]) { const el = $(id); el.textContent = msg || ""; el.classList.toggle("err", !!isErr); }
 }
+// Send one image of a page of music to the scanner (Audiveris in the local helper); returns MusicXML text.
+async function scanImageBlob(blob, name) {
+  let r;
+  try { r = await fetch("/scan", { method: "POST", headers: { "X-Filename": name }, body: blob }); }
+  catch (e) { throw new Error("Scan helper not running. Start it with: python falling-note-proto/scan_server.py"); }
+  const text = await r.text();
+  if (!r.ok) throw new Error(text.split("\n")[0]);
+  return text;
+}
 async function scanSheet(f) {
   try {
     const base = f.name.replace(/\.[^.]+$/, "");
@@ -1062,7 +1071,24 @@ async function audioToNotes(f) {
         return;
       } catch (e) {
         if (mode === "picture") throw e;
-        console.warn("picture reader:", e.message); dock("This doesn't look like a falling-notes video, so I'll listen to the sound instead…", 0.05);
+        console.warn("picture reader:", e.message); dock("Not a falling-notes video. Checking for sheet music…", 0.05);
+      }
+    }
+    // A video that shows sheet music: scan its pages. The result is the music as written (steady timing), not the video's own timing.
+    if (isVid && (mode === "auto" || mode === "score")) {
+      try {
+        const { readScoreVideo } = await import("./score.js");
+        const r = await readScoreVideo(f, (p, label) => dock(label, p), scanImageBlob, parseMusicXml);
+        dock("Done", 1);
+        await importSong({ notes: r.notes, bpm: r.bpm, name: r.title || f.name.replace(/\.[^.]+$/, ""), video: null }, true);
+        dock("Read " + r.notes.length + " notes from " + r.info.pages + " page(s) of sheet music" + (r.info.failedPages ? " (" + r.info.failedPages + " couldn't be read)" : "") +
+             ". This is the written music with steady timing, so it won't match the video's timing. Check it in Edit notes.", 1);
+        setTimeout(dockHide, 12000);
+        return;
+      } catch (e) {
+        if (mode === "score") throw e;
+        if (!e.notScore) say("I saw sheet music but couldn't read it: " + e.message + " I'll listen to the sound instead.", true);
+        dock("Listening to the sound instead…", 0.05);
       }
     }
     dock("Reading the sound…", 0.05);
