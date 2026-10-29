@@ -183,6 +183,29 @@ def run_piano(wav_bytes):
         shutil.rmtree(work, ignore_errors=True)
 
 
+# ---- "import my latest download": the newest media file in the user's Downloads folder ----
+DOWNLOADS = os.environ.get("WN_DOWNLOADS") or os.path.join(os.path.expanduser("~"), "Downloads")
+DOWNLOAD_EXTS = {".mp4", ".mov", ".webm", ".m4v", ".mkv", ".mp3", ".wav", ".m4a", ".flac", ".ogg", ".mid", ".midi",
+                 ".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".xml", ".musicxml"}
+DOWNLOAD_MAX = 400 * 1024 * 1024
+
+
+def latest_download():
+    """(path, stat, name) of the newest media file directly inside Downloads, or None. Unfinished downloads (.crdownload etc.) don't match."""
+    best = None
+    try:
+        with os.scandir(DOWNLOADS) as it:
+            for e in it:
+                if not e.is_file() or os.path.splitext(e.name)[1].lower() not in DOWNLOAD_EXTS:
+                    continue
+                st = e.stat()
+                if best is None or st.st_mtime > best[1].st_mtime:
+                    best = (e.path, st, e.name)
+    except OSError:
+        return None
+    return best
+
+
 FETCH_MAX = 40 * 1024 * 1024
 FETCH_TYPES = ("audio/", "video/", "image/", "application/pdf", "application/xml", "text/xml", "application/octet-stream",
                "application/vnd.recordare.musicxml", "application/x-midi")
@@ -283,7 +306,44 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         code, text = run_scan(self.rfile.read(n), name)
         self._reply(code, text, "application/xml; charset=utf-8" if code == 200 else "text/plain; charset=utf-8")
 
+    def _own_page_only(self):
+        """The Downloads endpoints are for this app's own page only: right Host (blocks DNS rebinding), our header (forces a CORS
+        preflight for other sites, which we never grant), and no foreign Origin."""
+        host = (self.headers.get("Host") or "").rsplit(":", 1)[0].lower()
+        origin = self.headers.get("Origin")
+        origin_ok = not origin or (urllib.parse.urlparse(origin).hostname or "") in ("localhost", "127.0.0.1")
+        return host in ("localhost", "127.0.0.1") and self.headers.get("X-WN") == "1" and origin_ok
+
+    def _latest(self):
+        if not self._own_page_only():
+            return self._reply(403, "Not allowed.")
+        found = latest_download()
+        if not found:
+            return self._reply(404, "No video, audio, MIDI, PDF or image file found in your Downloads folder.")
+        path, st, name = found
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == "/latest-download":
+            body = json.dumps({"name": name, "size": st.st_size, "modified": st.st_mtime, "tooBig": st.st_size > DOWNLOAD_MAX})
+            return self._reply(200, body, "application/json; charset=utf-8")
+        if parsed.path == "/latest-download/file":
+            want = (urllib.parse.parse_qs(parsed.query).get("name") or [""])[0]
+            if want != name:
+                return self._reply(409, "A newer download appeared. Press the button again.")
+            if st.st_size > DOWNLOAD_MAX:
+                return self._reply(413, "That file is larger than %d MB." % (DOWNLOAD_MAX // 1048576))
+            import mimetypes
+            self.send_response(200)
+            self.send_header("Content-Type", mimetypes.guess_type(name)[0] or "application/octet-stream")
+            self.send_header("Content-Length", str(st.st_size))
+            self.end_headers()
+            with open(path, "rb") as f:
+                shutil.copyfileobj(f, self.wfile, 1024 * 1024)
+            return
+        return self._reply(404, "Not found")
+
     def do_GET(self):
+        if self.path.startswith("/latest-download"):
+            return self._latest()
         if self.path == "/piano/status":
             return self._reply(200, piano_status())
         if self.path == "/scan/status":
