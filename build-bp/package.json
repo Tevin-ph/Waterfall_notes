@@ -10,8 +10,11 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@fontsource-variable/inter": "^5.1.0",
     "@spotify/basic-pitch": "^1.0.1",
     "@tensorflow/tfjs": "^4.22.0",
-    "esbuild": "^0.28.2"
+    "esbuild": "^0.28.2",
+    "lucide-static": "^0.468.0",
+    "three": "^0.170.0"
   }
 }
