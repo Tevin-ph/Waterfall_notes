@@ -20,7 +20,10 @@ Then open http://localhost:8765 in Chrome or Edge.
 ## Ways to bring in a song
 
 - MIDI file
-- Audio or video file: turned into notes in the browser by Spotify's [Basic Pitch](https://github.com/spotify/basic-pitch) (Apache-2.0, bundled in `falling-note-proto/vendor`)
+- Audio or video file, two detectors:
+  - **Piano model (most accurate, optional):** ByteDance's [piano transcription](https://github.com/qiuqiangkong/piano_transcription_inference) model, run by the local helper. One-time setup, about 1-2 GB: `powershell -ExecutionPolicy Bypass -File falling-note-proto\setup_piano.ps1`. About 1.7x real time on a laptop CPU (a 1-minute song takes under 2 minutes). It is the default once installed.
+  - **In the browser:** Spotify's [Basic Pitch](https://github.com/spotify/basic-pitch) (Apache-2.0, bundled in `falling-note-proto/vendor`). Used when the piano model isn't installed or fails; less accurate on piano.
+  - Audio is a guess. For exact notes use the song's MIDI file.
 - Sheet music photo or PDF: needs [Audiveris](https://github.com/Audiveris/audiveris) installed separately. MusicXML files work without it.
 - Direct file link: the helper downloads it with `curl`, only from public addresses (localhost and LAN addresses are refused).
 - Instagram, YouTube and similar links are not downloaded (their terms don't allow it). Pasting one opens the video in a new tab; then **Capture audio** listens to that tab's sound while you play it and turns it into notes.

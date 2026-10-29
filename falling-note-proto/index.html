@@ -200,7 +200,7 @@
       <label class="rights"><input type="checkbox" id="rights"> I own the rights to this media or have permission to use it</label>
       <label class="rights sens"><span>Note detail</span>
         <select id="sens" title="How many notes to look for in a recording or video">
-          <option value="balanced">Balanced (recommended)</option><option value="more">More notes (adds some extras)</option><option value="fewer">Fewer notes, cleaner</option>
+          <option value="piano">Piano model (most accurate)</option><option value="balanced">Balanced (browser only)</option><option value="more">More notes (adds some extras)</option><option value="fewer">Fewer notes, cleaner</option>
         </select>
       </label>
       <div id="createMsg" aria-live="polite"></div>
@@ -946,7 +946,30 @@ async function scanSheet(f) {
     const s = parseMusicXml(body); if (s.name === "Scanned score") s.name = base; await importSong(s);
   } catch (e) { say("Scan failed: " + e.message, true); }
 }
-// Audio/video file -> notes, fully in the browser (Spotify Basic Pitch, Apache-2.0, bundled in ./vendor)
+// 16-bit mono WAV from float samples (what the local piano helper reads).
+function encodeWav(f32, sr) {
+  const buf = new ArrayBuffer(44 + f32.length * 2), v = new DataView(buf), w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, "RIFF"); v.setUint32(4, 36 + f32.length * 2, true); w(8, "WAVEfmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, "data"); v.setUint32(40, f32.length * 2, true);
+  for (let i = 0; i < f32.length; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, f32[i])) * 32767, true);
+  return new Blob([buf], { type: "audio/wav" });
+}
+// Piano-only model in the local helper (about 97% accurate on piano). Returns notes, or null if it isn't set up / fails.
+async function pianoNotes(mono16k) {
+  const t0 = Date.now(), tick = setInterval(() => {
+    const s = Math.round((Date.now() - t0) / 1000);
+    dock("Listening with the piano model… " + Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0") + "   (about a minute per minute of music)", null);
+  }, 500);
+  try {
+    dock("Sending the sound to the piano model…", null);
+    const r = await fetch("/transcribe-piano", { method: "POST", body: encodeWav(mono16k, 16000) });
+    if (!r.ok) { console.warn("piano model:", await r.text()); return null; }
+    const notes = (await r.json()).notes || [];
+    return notes.length ? notes.map(n => ({ ...n, h: handOfAuto(n.m) })).sort((a, b) => a.t - b.t) : null;
+  } catch (e) { console.warn("piano model unavailable:", e); return null; }
+  finally { clearInterval(tick); }
+}
+// Audio/video file -> notes. Piano model in the local helper when set up; otherwise Spotify Basic Pitch in the browser (Apache-2.0, bundled in ./vendor).
 let transcriber = null;
 async function audioToNotes(f) {
   try {
@@ -956,23 +979,34 @@ async function audioToNotes(f) {
     try { dec = await ensureAudio().decodeAudioData(raw); }
     catch (e) { throw new Error("The browser could not read the audio in that file. Try mp3, wav, m4a or mp4."); }
     if (dec.duration > 600) throw new Error("Files over 10 minutes are too long for in-browser transcription.");
-    const off = new OfflineAudioContext(1, Math.ceil(dec.duration * 22050), 22050), src = off.createBufferSource();
-    src.buffer = dec; src.connect(off.destination); src.start();
-    const mono = (await off.startRendering()).getChannelData(0);
+    const resampled = async sr => {
+      const off = new OfflineAudioContext(1, Math.ceil(dec.duration * sr), sr), src = off.createBufferSource();
+      src.buffer = dec; src.connect(off.destination); src.start();
+      return (await off.startRendering()).getChannelData(0);
+    };
+    // Best accuracy: the piano-only model running in the local helper. If it isn't set up, fall through to the in-browser detector.
+    let good = null;
+    if ($("sens").value === "piano") {
+      good = await pianoNotes(await resampled(16000));
+      if (!good) say("The piano model isn't available, so I used the general detector instead.", true);
+    }
+    if (!good) {
+    const mono = await resampled(22050);
     dock("Loading the note detector…", 0.15);
     transcriber = transcriber || (await import("./vendor/basicpitch.js")).transcribe;
     // Note detail. Measured on a fast test passage (40 notes, 0.1 s apart): Balanced found 75-80% with 94% correct; More found 85% but
     // only 61% correct (lots of false notes). Notes under ~0.12 s are normal in fast music, so they must not be filtered out.
     const PRESETS = { more: { onset: 0.35, frame: 0.22, minLen: 4, minDur: 0.045 }, balanced: { onset: 0.5, frame: 0.3, minLen: 5, minDur: 0.06 }, fewer: { onset: 0.65, frame: 0.4, minLen: 7, minDur: 0.12 } };
-    const P = PRESETS[$("sens").value] || PRESETS.balanced;
+    const P = PRESETS[$("sens").value] || PRESETS.balanced;      // "piano" (model unavailable) uses Balanced
     const notes = await transcriber(mono, "vendor/model.json", p => dock("Turning the sound into notes… " + Math.round(p * 100) + "%", 0.2 + 0.8 * p), P);
     // Drop tiny blips, and only the obvious overtone ghosts: a short, much quieter note an octave/12th/2 octaves above a longer
     // note that starts at the same moment. Real octave doublings (similar loudness) are kept.
     const HARM = new Set([12, 19, 24, 28, 31]);
-    const good = notes
+    good = notes
       .filter(n => n.d >= P.minDur)
       .filter(n => !(n.d < 0.25 && notes.some(o => o !== n && o.d > n.d * 2 && Math.abs(o.t - n.t) < 0.06 && HARM.has(n.m - o.m) && n.v < 0.55 * o.v)))
       .map(n => ({ ...n, h: handOfAuto(n.m) })).sort((a, b) => a.t - b.t);
+    }
     if (!good.length) throw new Error("No notes were detected. Piano or other clear single instruments work best.");
     const isVideo = /^video\//.test(f.type) || /\.(mp4|mov|webm|m4v)$/i.test(f.name);
     dock("Done", 1); await importSong({ notes: good, bpm: 100, name: f.name.replace(/\.[^.]+$/, ""), video: isVideo ? f : null }, true);   // a video is kept and plays with the notes
@@ -1262,6 +1296,10 @@ addEventListener("paste", e => {
 new ResizeObserver(resize).observe($("stage"));   // the stage has no size while another page is showing
 
 resize(); syncUI(); route(); requestAnimationFrame(draw);
+// Use the piano model by default when the helper has it; otherwise start on the in-browser detector.
+fetch("/piano/status").then(r => r.text()).then(t => {
+  if (t.trim() !== "ready") { const o = $("sens").querySelector('option[value="piano"]'); o.textContent = "Piano model (not set up)"; $("sens").value = "balanced"; }
+}).catch(() => { $("sens").value = "balanced"; });
 // Load the 3D scene after the page is up. If it fails (no WebGL, blocked file), the 2D drawing keeps working.
 import("./vendor/icons.js").then(m => {
   ICONS = m.ICONS;
