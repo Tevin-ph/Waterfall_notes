@@ -22,7 +22,9 @@ Then open http://localhost:8765 in Chrome or Edge.
 - MIDI file
 - Audio or video file: turned into notes in the browser by Spotify's [Basic Pitch](https://github.com/spotify/basic-pitch) (Apache-2.0, bundled in `falling-note-proto/vendor`)
 - Sheet music photo or PDF: needs [Audiveris](https://github.com/Audiveris/audiveris) installed separately. MusicXML files work without it.
-- Direct file link: the helper downloads it with `curl`, only from public addresses (localhost and LAN addresses are refused). Links to YouTube, Instagram and similar sites are not supported.
+- Direct file link: the helper downloads it with `curl`, only from public addresses (localhost and LAN addresses are refused).
+- Instagram, YouTube and similar links are not downloaded (their terms don't allow it). Pasting one opens the video in a new tab; then **Capture audio** listens to that tab's sound while you play it and turns it into notes.
+- Links and captured audio need the "I own the rights to this media or have permission to use it" box ticked. It is a self-declaration, not a check.
 - Played in on a MIDI keyboard
 
 ## Layout
