@@ -230,6 +230,11 @@
           <option value="auto">Automatic (read the picture if it's a falling-notes video, else listen)</option><option value="picture">Read the picture only</option><option value="piano">Listen: piano model (most accurate)</option><option value="balanced">Listen: balanced (browser only)</option><option value="more">More notes (adds some extras)</option><option value="fewer">Fewer notes, cleaner</option>
         </select>
       </label>
+      <label class="rights sens"><span>Piano model speed</span>
+        <select id="pspeed" title="How the piano model splits the song">
+          <option value="best">Best accuracy (still faster than before)</option><option value="fast">Faster (up to ~2x; may miss a few notes where it joins sections)</option>
+        </select>
+      </label>
       <div id="createMsg" aria-live="polite"></div>
       <div id="latestCard" hidden>
         <div class="lcText"><div class="lcKicker">Newest file in your Downloads</div><div id="lcName"></div><div id="lcMeta"></div></div>
@@ -1032,7 +1037,7 @@ async function pianoNotes(mono16k) {
   }, 500);
   try {
     dock("Sending the sound to the piano model…", null);
-    const r = await fetch("/transcribe-piano", { method: "POST", body: encodeWav(mono16k, 16000) });
+    const r = await fetch("/transcribe-piano" + ($("pspeed").value === "fast" ? "?speed=fast" : ""), { method: "POST", body: encodeWav(mono16k, 16000) });
     if (!r.ok) { console.warn("piano model:", await r.text()); return null; }
     const notes = (await r.json()).notes || [];
     return notes.length ? notes.map(n => ({ ...n, h: handOfAuto(n.m) })).sort((a, b) => a.t - b.t) : null;

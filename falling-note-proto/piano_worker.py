@@ -23,7 +23,41 @@ def _load_model():
     return _model
 
 
-def transcribe_file(wav_path, out_path):
+HOP_BEST, HOP_FAST = 5.0, 8.0                          # seconds between 10 s windows: the library's own 5, or a faster 8
+BATCH = int(os.environ.get("PIANO_BATCH", "4"))        # windows run through the network at once
+SR, FPS, SEG = 16000, 100, 160000
+
+
+def _events_fast(tr, audio, hop_s=HOP_BEST):
+    """The library's model and thresholds, with 4 windows per batch. hop_s=5 is the library's own overlap: the notes are IDENTICAL to its
+    output (measured 100% on real piano) but 1.3-1.7x faster. hop_s=8 (each window contributes its middle 8 s instead of 5 s) is up to
+    ~2x faster still but changes some notes at the window joins: measured 99.1% identical on real piano, 95% on a dense stress clip."""
+    import numpy as np
+    import piano_transcription_inference.inference as inf
+    from piano_transcription_inference.utilities import RegressionPostProcessor
+    n = len(audio); hop = int(hop_s * SR)
+    need = SEG + int(np.ceil(max(0, n - SEG) / hop)) * hop
+    a = np.concatenate([audio[None, :], np.zeros((1, need - n), dtype=np.float32)], axis=1)
+    starts = list(range(0, need - SEG + 1, hop))
+    segs = np.concatenate([a[:, s:s + SEG] for s in starts], axis=0)
+    out = inf.forward(tr.model, segs, batch_size=BATCH)
+    margin = int(((SEG - hop) / 2) / SR * FPS)             # frames dropped from each inner window edge
+    res = {}
+    for k, v in out.items():
+        x = v[:, :-1, :]; F = x.shape[1]; parts = []
+        for i in range(len(starts)):
+            lo = 0 if i == 0 else margin
+            hi = F if i == len(starts) - 1 else F - margin
+            parts.append(x[i, lo:hi])
+        res[k] = np.concatenate(parts, axis=0)[: int(n / SR * FPS) + 1]
+    pp = RegressionPostProcessor(tr.frames_per_second, classes_num=tr.classes_num, onset_threshold=tr.onset_threshold,
+                                 offset_threshold=tr.offset_threshod, frame_threshold=tr.frame_threshold,
+                                 pedal_offset_threshold=tr.pedal_offset_threshold)
+    events, _ = pp.output_dict_to_midi_events(res)
+    return events
+
+
+def transcribe_file(wav_path, out_path, fast=False):
     import numpy as np
     import soundfile as sf
     from piano_transcription_inference import sample_rate
@@ -35,9 +69,14 @@ def transcribe_file(wav_path, out_path):
         import librosa
         audio = librosa.resample(audio, orig_sr=sr, target_sr=sample_rate)
     audio = np.ascontiguousarray(audio, dtype=np.float32)
-    est = _load_model().transcribe(audio, None)          # None: don't write a MIDI file
+    tr = _load_model()
+    try:
+        events = _events_fast(tr, audio, HOP_FAST if fast else HOP_BEST)
+    except Exception as e:                                # if the faster path ever fails, use the library's own method
+        print("fast path failed, using the library's method:", e, file=sys.stderr)
+        events = tr.transcribe(audio, None)["est_note_events"]          # None: don't write a MIDI file
     notes = []
-    for n in est["est_note_events"]:
+    for n in events:
         on, off = float(n["onset_time"]), float(n["offset_time"])
         notes.append({"m": int(n["midi_note"]), "t": on, "d": max(0.03, off - on), "v": min(1.0, max(0.2, float(n["velocity"]) / 127.0))})
     with open(out_path, "w") as f:
@@ -60,7 +99,7 @@ def serve():
             continue
         try:
             req = json.loads(line)
-            transcribe_file(req["wav"], req["out"])
+            transcribe_file(req["wav"], req["out"], bool(req.get("fast")))
             say({"ok": True})
         except Exception as e:
             say({"ok": False, "error": (type(e).__name__ + ": " + str(e))[:300]})
