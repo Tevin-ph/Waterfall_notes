@@ -52,6 +52,8 @@
   .chips { display:flex; flex-wrap:wrap; gap:10px; }
   .chipb { display:flex; align-items:center; gap:10px; padding:11px 16px; border-radius:10px; font-weight:500; background:transparent; }
   .chipb svg { width:15px; height:15px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; }
+  .rights { display:flex; align-items:center; gap:10px; margin-top:16px; color:var(--dim); cursor:pointer; width:fit-content; }
+  .rights input { width:16px; height:16px; accent-color:var(--accent); }
   #createMsg { margin-top:26px; color:var(--dim); min-height:22px; }
   #createMsg.err { color:#ff8a8d; }
   .drop { margin-top:26px; border:1px dashed var(--line2); border-radius:14px; padding:26px; color:var(--dim); text-align:center; }
@@ -133,9 +135,12 @@
         <input id="linkIn" type="text" placeholder="Paste a link" autocomplete="off" aria-label="Link to a file">
         <button class="act" id="linkGo">Go</button>
         <button class="act" id="recNew" title="Play on your MIDI keyboard to make a new song">Record</button>
+        <button class="act" id="capAudio" title="Listen to the sound of a browser tab (a video you have open) and turn it into notes">Capture audio</button>
         <label class="act" style="cursor:pointer">Choose File<input id="anyFile" type="file" accept=".mid,.midi,.pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.xml,.musicxml,audio/*,video/*,image/*"></label>
       </div>
+      <label class="rights"><input type="checkbox" id="rights"> I own the rights to this media or have permission to use it</label>
       <div id="createMsg" aria-live="polite"></div>
+      <button id="capStop" hidden style="margin-top:14px">Stop and make notes</button>
       <div class="cap">Start a song</div>
       <div class="chips" id="startChips"></div>
       <div class="drop" id="createDrop">Drop a MIDI file, a recording (mp3, wav, m4a, mp4), a PDF or a photo of sheet music here</div>
@@ -892,8 +897,12 @@ async function handleLink(raw) {
   const text = raw.trim(); if (!text) return;
   let url; try { url = new URL(/^[a-z]+:\/\//i.test(text) ? text : "https://" + text); } catch (e) { say("That doesn't look like a link.", true); return; }
   if (!/^https?:$/.test(url.protocol)) { say("Only http and https links work.", true); return; }
+  if (!rightsOk()) return;
   if (/(^|\.)(youtube\.com|youtu\.be|instagram\.com|tiktok\.com|facebook\.com|fb\.watch|x\.com|twitter\.com)$/i.test(url.hostname)) {
-    say("Links to YouTube, Instagram and similar sites can't be downloaded here because their terms don't allow it. Save the recording yourself and use Choose File.", true); return;
+    // These sites don't allow downloading, so open the video for you to play and listen to its sound instead.
+    window.open(url.href, "_blank", "noopener");
+    say("Opened it in a new tab. Come back here and press Capture audio, pick that tab, tick “Also share tab audio”, then play the video.");
+    return;
   }
   say("Fetching the file…");
   let r; try { r = await fetch("/fetch?url=" + encodeURIComponent(url.href)); } catch (e) { say("The local helper isn't running. Start it with: python falling-note-proto/scan_server.py", true); return; }
@@ -903,6 +912,37 @@ async function handleLink(raw) {
   if (!/\.\w{2,8}$/.test(name)) name += extFor(ct);
   openAny(new File([blob], name, { type: ct.split(";")[0] }));
 }
+function rightsOk() {
+  if ($("rights").checked) return true;
+  say("Tick the box to confirm you own this media or have permission to use it.", true); return false;
+}
+// Listen to a browser tab's sound (you play the video yourself) and turn it into notes.
+let cap = null;
+async function captureAudio() {
+  if (!rightsOk()) return;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) { say("This browser can't capture tab audio. Use Chrome or Edge.", true); return; }
+  let stream;
+  try { stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }); }
+  catch (e) { say("Capture cancelled.", true); return; }
+  const tracks = stream.getAudioTracks();
+  if (!tracks.length) { stream.getTracks().forEach(t => t.stop()); say("No sound was shared. Pick the tab and tick “Also share tab audio”.", true); return; }
+  const chunks = [], mr = new MediaRecorder(new MediaStream(tracks)), t0 = Date.now();
+  cap = { mr, stream, timer: null, tick: null };
+  mr.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+  mr.onstop = async () => {
+    clearInterval(cap.tick); clearTimeout(cap.timer); stream.getTracks().forEach(t => t.stop()); $("capStop").hidden = true; cap = null;
+    if (!chunks.length) { say("Nothing was captured.", true); return; }
+    await audioToNotes(new File(chunks, "Captured audio.webm", { type: mr.mimeType || "audio/webm" }));
+  };
+  mr.start(1000);
+  $("capStop").hidden = false;
+  cap.tick = setInterval(() => say("Capturing sound… " + Math.round((Date.now() - t0) / 1000) + "s. Play the video, then press Stop."), 500);
+  cap.timer = setTimeout(stopCapture, 5 * 60 * 1000);   // 5 minute limit
+  tracks[0].addEventListener("ended", stopCapture);      // the person pressed the browser's own Stop sharing
+}
+function stopCapture() { if (cap && cap.mr.state !== "inactive") cap.mr.stop(); }
+$("capAudio").onclick = captureAudio;
+$("capStop").onclick = stopCapture;
 $("linkGo").onclick = () => handleLink($("linkIn").value);
 $("linkIn").addEventListener("keydown", e => { if (e.key === "Enter") handleLink($("linkIn").value); });
 $("anyFile").onchange = e => { if (e.target.files[0]) openAny(e.target.files[0]); e.target.value = ""; };
