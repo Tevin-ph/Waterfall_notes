@@ -63,6 +63,10 @@
   #embedFrame { width:min(100%, 400px); height:560px; border:0; border-radius:12px; background:#000; flex:none; }
   .embedSteps { flex:1 1 260px; margin:0; padding-left:20px; color:var(--dim); line-height:1.8; }
   .embedSteps b { color:var(--ink); font-weight:500; }
+  #embedMsg { flex-basis:100%; color:var(--dim); min-height:20px; }
+  #embedMsg.err { color:#ff8a8d; }
+  #capStop { position:fixed; right:28px; bottom:28px; z-index:60; background:var(--rec); border-color:var(--rec); color:#fff; padding:12px 20px; font-weight:500; box-shadow:0 10px 30px rgba(0,0,0,.5); }
+  #capStop[hidden] { display:none; }
   .embedSteps button { margin:2px 0; background:var(--ink); color:#000; border-color:var(--ink); font-weight:500; }
   #createMsg { margin-top:26px; color:var(--dim); min-height:22px; }
   #createMsg.err { color:#ff8a8d; }
@@ -171,6 +175,7 @@
             <li>In the sharing window choose <b>This tab</b> and keep <b>Share tab audio</b> ticked.</li>
             <li>When the song has played, press <b>Stop and make notes</b>.</li>
           </ol>
+          <div id="embedMsg" aria-live="polite"></div>
         </div>
       </div>
       <div class="cap">Start a song</div>
@@ -827,7 +832,7 @@ function say(msg, isErr) {
     h.style.display = msg || empty ? "" : "none"; h.textContent = msg || (empty ? "Open a song from Library or Create" : "");
     return;
   }
-  for (const id of ["createMsg", "scanMsg"]) { const el = $(id); el.textContent = msg || ""; el.classList.toggle("err", !!isErr); }
+  for (const id of ["createMsg", "scanMsg", "embedMsg"]) { const el = $(id); el.textContent = msg || ""; el.classList.toggle("err", !!isErr); }
 }
 async function scanSheet(f) {
   try {
@@ -1018,7 +1023,12 @@ async function captureAudio(thisTab) {
     const opts = { video: true, audio: true };
     if (thisTab === true) { opts.preferCurrentTab = true; opts.selfBrowserSurface = "include"; }   // jump straight to "this tab" in Chrome/Edge
     stream = await navigator.mediaDevices.getDisplayMedia(opts);
-  } catch (e) { say("Capture cancelled.", true); return; }
+  } catch (e) {
+    say(e && e.name === "NotAllowedError"
+      ? "Sharing was blocked or cancelled. If you're looking at this inside the Claude preview pane, it can't share tabs: open http://localhost:8765 in Chrome or Edge and try again."
+      : "Could not start capturing" + (e && e.message ? ": " + e.message : "."), true);
+    return;
+  }
   const tracks = stream.getAudioTracks();
   if (!tracks.length) { stream.getTracks().forEach(t => t.stop()); say("No sound was shared. Pick the tab and tick “Also share tab audio”.", true); return; }
   const chunks = [], mr = new MediaRecorder(new MediaStream(tracks)), t0 = Date.now();
@@ -1031,7 +1041,11 @@ async function captureAudio(thisTab) {
   };
   mr.start(1000);
   $("capStop").hidden = false;
-  cap.tick = setInterval(() => say("Capturing sound… " + Math.round((Date.now() - t0) / 1000) + "s. Play the video, then press Stop."), 500);
+  cap.tick = setInterval(() => {
+    const s = Math.round((Date.now() - t0) / 1000);
+    say("Capturing sound… " + s + "s. Play the video, then press the red Stop button.");
+    $("capStop").textContent = "■ Stop and make notes (" + s + "s)";
+  }, 500);
   cap.timer = setTimeout(stopCapture, 5 * 60 * 1000);   // 5 minute limit
   tracks[0].addEventListener("ended", stopCapture);      // the person pressed the browser's own Stop sharing
 }
