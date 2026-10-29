@@ -56,7 +56,13 @@
   .rights input { width:16px; height:16px; accent-color:var(--accent); }
   #createMsg { margin-top:26px; color:var(--dim); min-height:22px; }
   #createMsg.err { color:#ff8a8d; }
-  .drop { margin-top:26px; border:1px dashed var(--line2); border-radius:14px; padding:26px; color:var(--dim); text-align:center; }
+  .drop { margin-top:26px; border:1px dashed var(--line2); border-radius:14px; padding:34px 26px; color:var(--dim); text-align:center; cursor:pointer; transition:border-color .15s, background .15s; }
+  .drop:hover { border-color:#5a5a64; background:#0a0a0c; }
+  .drop .dt { color:var(--ink); font-size:18px; font-weight:500; }
+  .drop .dsub { margin-top:6px; font-size:13px; }
+  .dlink { display:flex; gap:10px; max-width:640px; margin:24px auto 0; cursor:default; }
+  .dlink input { flex:1; min-width:0; background:var(--card); border:1px solid var(--line2); border-radius:10px; color:var(--ink); font:inherit; padding:10px 14px; outline:none; }
+  .dlink input:focus { border-color:var(--accent); }
   .drop.drag, #stage.drag { border-color:var(--accent); outline:2px dashed var(--accent); outline-offset:-8px; }
 
   /* library */
@@ -143,7 +149,14 @@
       <button id="capStop" hidden style="margin-top:14px">Stop and make notes</button>
       <div class="cap">Start a song</div>
       <div class="chips" id="startChips"></div>
-      <div class="drop" id="createDrop">Drop a MIDI file, a recording (mp3, wav, m4a, mp4), a PDF or a photo of sheet music here</div>
+      <div class="drop" id="createDrop" role="button" tabindex="0" aria-label="Choose a file, or drop one here">
+        <div class="dt">Click to choose a file, or drop one here</div>
+        <div class="dsub">MIDI file &middot; recording (mp3, wav, m4a, mp4) &middot; PDF or photo of sheet music</div>
+        <div class="dlink" id="dropLinkRow">
+          <input id="dropLink" type="text" placeholder="…or paste a link: YouTube, Instagram, or a link to a file" autocomplete="off" aria-label="Paste a link">
+          <button id="dropLinkGo">Go</button>
+        </div>
+      </div>
     </div></section>
 
     <!-- SCAN -->
@@ -156,7 +169,10 @@
         <label class="act" style="cursor:pointer">Choose photo or PDF<input id="scanPageFile" type="file" accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.xml,.musicxml,image/*"></label>
       </div>
       <div id="scanMsg" style="margin-top:26px;color:var(--dim);min-height:22px" aria-live="polite"></div>
-      <div class="drop" id="scanDrop">Drop a PDF, photo or MusicXML file here</div>
+      <div class="drop" id="scanDrop" role="button" tabindex="0" aria-label="Choose a PDF or photo, or drop one here">
+        <div class="dt">Click to choose a PDF or photo, or drop one here</div>
+        <div class="dsub">PDF &middot; photo of sheet music &middot; MusicXML file</div>
+      </div>
     </div></section>
 
     <!-- PRACTICE -->
@@ -987,6 +1003,22 @@ function wireDrop(el, handler) {
   el.addEventListener("drop", e => { e.preventDefault(); el.classList.remove("drag"); const f = e.dataTransfer.files[0]; if (f) handler(f); });
 }
 wireDrop($("stage"), openAny); wireDrop($("createDrop"), openAny); wireDrop($("scanDrop"), scanSheet);
+// Clicking a drop box opens the file picker (also with Enter/Space). The link row inside the Create box is left alone.
+function clickToPick(box, input) {
+  box.addEventListener("click", e => { if (!e.target.closest("#dropLinkRow")) input.click(); });
+  box.addEventListener("keydown", e => { if (e.target === box && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); input.click(); } });
+}
+clickToPick($("createDrop"), $("anyFile")); clickToPick($("scanDrop"), $("scanPageFile"));
+const goDropLink = () => { $("linkIn").value = $("dropLink").value; handleLink($("dropLink").value); };
+$("dropLinkGo").onclick = goDropLink;
+$("dropLink").addEventListener("keydown", e => { if (e.key === "Enter") goDropLink(); });
+// Ctrl+V on the Create page: a copied file opens it, copied text that is a link goes to the link handler.
+addEventListener("paste", e => {
+  if (!$("v-create").classList.contains("show") || e.target.tagName === "INPUT") return;
+  const f = e.clipboardData && e.clipboardData.files[0], text = ((e.clipboardData && e.clipboardData.getData("text")) || "").trim();
+  if (f) { e.preventDefault(); openAny(f); }
+  else if (/^(https?:\/\/|www\.)\S+$/i.test(text)) { e.preventDefault(); $("linkIn").value = text; handleLink(text); }
+});
 new ResizeObserver(resize).observe($("stage"));   // the stage has no size while another page is showing
 
 resize(); syncUI(); route(); requestAnimationFrame(draw);
