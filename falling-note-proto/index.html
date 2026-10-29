@@ -60,6 +60,12 @@
   #embedBox[hidden] { display:none; }
   .embedHead { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid var(--line); font-weight:500; }
   .embedBody { display:flex; flex-wrap:wrap; gap:24px; padding:18px; align-items:flex-start; }
+  #ownBox { padding:26px 28px; display:flex; flex-direction:column; align-items:flex-start; gap:14px; }
+  #ownBox[hidden], #embedPlay[hidden] { display:none; }
+  #ownBox h2 { margin:0; font-size:24px; font-weight:500; letter-spacing:-.01em; }
+  #ownBox p { margin:0; color:var(--dim); line-height:1.55; max-width:62ch; }
+  #ownBox .tiny { font-size:12.5px; }
+  .ownBtns { display:flex; flex-wrap:wrap; align-items:center; gap:10px 22px; }
   #embedFrame { width:min(100%, 400px); height:560px; border:0; border-radius:12px; background:#000; flex:none; }
   .embedSide { flex:1 1 260px; display:flex; flex-direction:column; align-items:flex-start; gap:14px; padding-top:6px; }
   .embedSide h2 { margin:0; font-size:24px; font-weight:500; letter-spacing:-.01em; }
@@ -199,6 +205,17 @@
       </label>
       <div id="createMsg" aria-live="polite"></div>
       <div id="embedBox" hidden>
+        <div id="ownBox">
+          <h2>Use your video file</h2>
+          <p>Instagram doesn't let apps download videos, so I can't fetch this one from the link. If it's your video, choose the file and I'll do the rest: make the notes, start playing, and show the video next to them.</p>
+          <div class="ownBtns">
+            <button id="ownPick" class="primary">Choose the video file</button>
+            <button id="playHere" class="linkish">I only have the link: play it here instead</button>
+          </div>
+          <p class="tiny">Your own post: in the Instagram app open it, tap the three dots, then Download. Or use the original file you made it from (or its MIDI file, for exact notes).</p>
+          <button id="ownClose" class="linkish">Close</button>
+        </div>
+        <div id="embedPlay" hidden>
         <div class="embedBody">
           <iframe id="embedFrame" title="Video to turn into notes" allow="autoplay; encrypted-media; fullscreen; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin"></iframe>
           <div class="embedSide">
@@ -209,6 +226,7 @@
             <div id="embedMsg" aria-live="polite"></div>
             <button id="embedClose" class="linkish">Close</button>
           </div>
+        </div>
         </div>
       </div>
       <div class="cap">Start a song</div>
@@ -1065,7 +1083,7 @@ async function handleLink(raw) {
   if (/(^|\.)(youtube\.com|youtu\.be|instagram\.com|tiktok\.com|facebook\.com|fb\.watch|x\.com|twitter\.com)$/i.test(url.hostname)) {
     // These sites don't allow downloading. Show their own embedded player right here; the notes are made from its sound.
     const emb = embedFor(url);
-    if (emb) { showEmbed(emb); say(""); return; }
+    if (emb) { showOwn(emb); say(""); return; }
     window.open(url.href, "_blank", "noopener");
     say("Opened it in a new tab. Come back here and press Capture audio, pick that tab, tick “Also share tab audio”, then play the video.");
     return;
@@ -1094,12 +1112,21 @@ function embedFor(url) {
   else if (h === "youtube.com") id = url.searchParams.get("v") || (url.pathname.match(/^\/(?:shorts|embed|live)\/([\w-]+)/) || [])[1];
   return id && /^[\w-]{11}$/.test(id) ? { src: "https://www.youtube-nocookie.com/embed/" + id + "?rel=0&playsinline=1", height: 300 } : null;
 }
-function showEmbed(emb) {
-  const f = $("embedFrame"); f.style.height = emb.height + "px"; f.src = emb.src; $("embedBox").hidden = false;
+// A social link opens a short "use your file" card first (that path is fully automatic). Playing the site's own player is the fallback.
+let pendingEmb = null;
+function showOwn(emb) {
+  pendingEmb = emb; $("embedBox").hidden = false; $("ownBox").hidden = false; $("embedPlay").hidden = true;
   $("embedBox").scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
-function closeEmbed() { $("embedFrame").src = "about:blank"; $("embedBox").hidden = true; }
-$("embedClose").onclick = closeEmbed;
+function showEmbed(emb) {
+  const f = $("embedFrame"); f.style.height = emb.height + "px"; f.src = emb.src;
+  $("embedBox").hidden = false; $("ownBox").hidden = true; $("embedPlay").hidden = false;
+  $("embedBox").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+function closeEmbed() { $("embedFrame").src = "about:blank"; $("embedBox").hidden = true; pendingEmb = null; }
+$("embedClose").onclick = closeEmbed; $("ownClose").onclick = closeEmbed;
+$("ownPick").onclick = () => $("anyFile").click();
+$("playHere").onclick = () => { if (pendingEmb) showEmbed(pendingEmb); };
 $("embedCap").onclick = () => captureAudio(true);
 
 // Listen to a browser tab's sound (you play the video yourself) and turn it into notes.
@@ -1162,7 +1189,7 @@ async function captureAudio(thisTab) {
 function stopCapture() {
   if (cap && cap.mr.state !== "inactive") { dock("Finishing up…", null, false); cap.mr.stop(); }
 }
-$("capAudio").onclick = () => captureAudio(!$("embedBox").hidden);
+$("capAudio").onclick = () => captureAudio(!$("embedPlay").hidden);
 $("capStop").onclick = stopCapture;
 $("linkGo").onclick = () => handleLink($("linkIn").value);
 $("linkIn").addEventListener("keydown", e => { if (e.key === "Enter") handleLink($("linkIn").value); });
