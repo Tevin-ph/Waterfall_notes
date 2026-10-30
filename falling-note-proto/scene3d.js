@@ -284,7 +284,8 @@ export function createScene(stage) {
       const n = notes[i]; if (n.t - p > lookAhead) break;
       const full = n.t + n.d; if (full < p) continue;
       // With the pedal view on, a note that rings on after its key was let go is two parts: the held key (solid) and the pedal ring (faint).
-      const split = s.pedal && n.kd != null && n.kd < n.d - 0.08, end = split ? n.t + n.kd : full;
+      // Pedal: "hide" (default) shows only the time the key is held, "ring" adds a faint tail for the pedal's sustain, "full" is one bar per note.
+      const pm_ = s.pedal || "hide", split = pm_ !== "full" && n.kd != null && n.kd < n.d - 0.08, end = split ? n.t + n.kd : full;
       const pm = n.m + transpose, k = keys[pm]; if (!k) continue;
       if (s.showHands) {
         const hh = n.h === 1 ? 1 : 0;
@@ -296,7 +297,7 @@ export function createScene(stage) {
       const { g, q } = noteGeo(w, Math.max(0.3, near - far)), zc = near - q / 2;
       const e = slot(used++), hex = spec ? spectrum[pm % 12] : HAND[n.h];
       e.tail.visible = false;
-      if (split) {
+      if (split && pm_ === "ring") {
         const tn = -Math.max(0, end - p) * zps, tf = -Math.min(full - p, lookAhead) * zps, tl = Math.max(0.1, tn - tf);
         e.tail.visible = true; e.tail.material = tailMat(hex); e.tail.scale.set(w * 0.55, 0.3, tl); e.tail.position.set(k.x, 0.3, tn - tl / 2);
       }
@@ -304,7 +305,7 @@ export function createScene(stage) {
       e.box.visible = true; e.box.geometry = g; e.box.material = noteMat(hex, dim, n.t <= p && !dim); e.box.position.set(k.x, 0.3, zc);
       e.stripe.visible = spec && !dim;
       if (e.stripe.visible) { e.stripe.material = noteMat(HAND[n.h], false); e.stripe.position.set(k.x, 0.3, zc); e.stripe.scale.set(w * 0.3, 0.54, q * 0.96); }
-      e.label.visible = letters && !dim && w > 0.4;
+      e.label.visible = letters && !dim && w > 0.4 && q >= 0.65;           // a letter on a tiny bar just spills over its neighbours
       if (e.label.visible) {
         const size = Math.min(0.85, w * 0.95);
         e.label.material = labelMats[pm % 12]; e.label.scale.set(size, size, 1);
