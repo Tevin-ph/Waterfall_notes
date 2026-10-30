@@ -425,6 +425,7 @@
               <label class="srow"><span>Hands' skin</span><select id="skinSel"><option value="#f1cdb0">Light</option><option value="#e0b08c" selected>Medium</option><option value="#b98660">Tan</option><option value="#8a5a3c">Brown</option><option value="#5b3a27">Dark</option></select></label>
               <div class="sgroup">Playing</div>
               <label class="srow"><span>Play along with</span><select id="hands"><option value="both">Both hands</option><option value="right">Right hand</option><option value="left">Left hand</option></select></label>
+              <label class="srow"><span>Glow on notes</span><select id="glowSel"><option value="0">None</option><option value="1" selected>A little</option><option value="2">Full glow</option></select></label>
               <label class="srow"><span>Camera</span><select id="viewMode"><option value="flat">Straight down (notes fall vertically)</option><option value="tilt">3D tilt</option></select></label>
               <label class="srow"><span>Pedal</span><select id="pedalMode"><option value="hide">Hide pedal sustain (only held keys)</option><option value="ring">Show pedal sustain faintly</option><option value="full">Full length (key + pedal)</option></select></label>
               <label class="srow"><span>Piano view</span><select id="zoom"><option value="auto">Zoom to the song</option><option value="full">Full piano</option></select></label>
@@ -1164,11 +1165,20 @@ async function pianoNotes(mono16k) {
 }
 // Audio/video file -> notes. Piano model in the local helper when set up; otherwise Spotify Basic Pitch in the browser (Apache-2.0, bundled in ./vendor).
 let transcriber = null, pianoReady = false;
+// Does this video file have a picture the browser can show? (Audio-only recordings are saved as webm "video" but have none.)
+function hasPicture(file) {
+  return new Promise(res => {
+    const v = document.createElement("video"), u = URL.createObjectURL(file); let done = false;
+    const end = ok => { if (done) return; done = true; URL.revokeObjectURL(u); v.removeAttribute("src"); res(ok); };
+    v.muted = true; v.preload = "metadata"; v.onloadedmetadata = () => end(v.videoWidth > 0); v.onerror = () => end(true); setTimeout(() => end(true), 5000); v.src = u;   // unsure: assume it has one
+  });
+}
 async function audioToNotes(f) {
   try {
     const mode = $("sens").value, isVid = /^video\//.test(f.type) || /\.(mp4|mov|webm|m4v)$/i.test(f.name);
+    const hasPic = isVid && await hasPicture(f);          // a recording of a tab's sound is a "video" file with no picture: skip the picture readers quietly
     // A falling-notes video shows the notes on screen: read them off the picture (exact), and only listen if that isn't possible.
-    if (isVid && (mode === "auto" || mode === "picture")) {
+    if (isVid && (mode === "picture" || (mode === "auto" && hasPic))) {
       try {
         const { readPicture } = await import("./picture.js");
         const r = await readPicture(f, (p, label) => dock(label, p));
@@ -1185,7 +1195,7 @@ async function audioToNotes(f) {
       }
     }
     // A video that shows sheet music: scan its pages. The result is the music as written (steady timing), not the video's own timing.
-    if (isVid && (mode === "auto" || mode === "score")) {
+    if (isVid && (mode === "score" || (mode === "auto" && hasPic))) {
       try {
         const { readScoreVideo } = await import("./score.js");
         const r = await readScoreVideo(f, (p, label) => dock(label, p), scanImageBlob, parseMusicXml);
@@ -1709,6 +1719,12 @@ function setSkinTone(hex, keep) {
   skinTone = hex; $("skinSel").value = hex; if (gl3d && gl3d.setSkin) gl3d.setSkin(hex);
   if (!keep) { try { localStorage.setItem("wn.skin", hex); } catch (e) {} }
 }
+
+// ---- glow around the notes (remembered; "a little" keeps the letters readable) ----
+let glowLevel = 1;
+function setGlowLevel(n, keep) { glowLevel = n; $("glowSel").value = String(n); if (gl3d && gl3d.setGlow) gl3d.setGlow(n); if (!keep) { try { localStorage.setItem("wn.glow", String(n)); } catch (e) {} } }
+$("glowSel").onchange = e => setGlowLevel(parseInt(e.target.value, 10));
+try { const g = parseInt(localStorage.getItem("wn.glow"), 10); if (g >= 0 && g <= 2) { glowLevel = g; $("glowSel").value = String(g); } } catch (e) {}
 $("skinSel").onchange = e => setSkinTone(e.target.value);
 try { const s = localStorage.getItem("wn.skin"); if (s && /^#[0-9a-f]{6}$/i.test(s) && [...$("skinSel").options].some(o => o.value === s)) { skinTone = s; $("skinSel").value = s; } } catch (e) {}
 $("colR").oninput = e => setColors(e.target.value, HANDCSS[1]);
@@ -1795,7 +1811,7 @@ import("./vendor/icons.js").then(m => {
   $("saveMidi").innerHTML = ico("download") + "Export .mid"; $("saveLib").dataset.label = "Save"; $("saveLib").innerHTML = ico("save") + "Save";
   syncUI();
 }).catch(() => {});
-import("./scene3d.js").then(m => { gl3d = m.createScene($("stage")); gl3d.setColors(HANDCSS[0], HANDCSS[1]); gl3d.setSkin(skinTone); cv.style.display = "none"; resize(); })
+import("./scene3d.js").then(m => { gl3d = m.createScene($("stage")); gl3d.setColors(HANDCSS[0], HANDCSS[1]); gl3d.setSkin(skinTone); gl3d.setGlow(glowLevel); cv.style.display = "none"; resize(); })
   .catch(e => console.warn("3D scene unavailable, using the 2D view:", e));
 </script>
 </body>

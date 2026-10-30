@@ -78,10 +78,11 @@ export function createScene(stage) {
   }
   const matCache = new Map();
   // Notes are calm pastel bars; only the one being played goes white-hot and blooms, so the screen stays clean.
+  let hotI = 0.35;                                  // how bright the note being played is (set with the glow level)
   const noteMat = (hex, dim, hot) => {
     const k = hex + (dim ? "d" : "") + (hot ? "h" : "");
     if (!matCache.has(k)) matCache.set(k, new T.MeshPhysicalMaterial({
-      color: hot ? lighten(hex, 0.7) : hex, emissive: hot ? lighten(hex, 0.25) : hex, emissiveIntensity: dim ? 0.04 : hot ? 0.85 : 0.28,
+      color: hot ? lighten(hex, 0.7) : hex, emissive: hot ? lighten(hex, 0.25) : hex, emissiveIntensity: dim ? 0.04 : hot ? hotI : 0.28,
       roughness: 0.22, clearcoat: 1, clearcoatRoughness: 0.12, transparent: dim, opacity: dim ? 0.2 : 1, depthWrite: !dim }));
     return matCache.get(k);
   };
@@ -361,7 +362,10 @@ export function createScene(stage) {
       if (e.label.visible) {
         const size = Math.min(0.85, w * 0.95, Math.max(0.3, q * 0.9));       // shrinks with the bar so a short note's letter stays on it
         e.label.material = labelMats[pm % 12]; e.label.scale.set(size, size, 1);
-        e.label.position.set(k.x, 0.58, q > size * 1.4 ? near - size * 0.75 : zc);
+        // The letter sits at the near end of the bar. The grey shelf above the keys hides the first 1.25 units above the hit line, so the letter of a note
+        // being played (whose near end is there) is lifted clear of the shelf instead of being hidden under it.
+        const clear = -(1.25 + size * 0.5 + 0.15), lift = Math.min(near - size * 0.75, clear);
+        e.label.position.set(k.x, 0.58, q > size * 1.4 ? (q >= -clear + size * 0.6 ? lift : near - size * 0.75) : zc);
       }
       if (n.t <= p && end >= p && !dim) active.set(pm, n.h);
     }
@@ -401,10 +405,20 @@ export function createScene(stage) {
   // Quality steps for a graphics card that can't keep up (the page watches the frame time and asks): 1 = draw at normal pixel density,
   // 2 = also switch the glow off. Returns the level actually in force.
   function setQuality(level) {
-    quality = level; renderer.setPixelRatio(level >= 1 ? 1 : Math.min(2, window.devicePixelRatio || 1)); bloom.enabled = level < 2;
+    quality = level; renderer.setPixelRatio(level >= 1 ? 1 : Math.min(2, window.devicePixelRatio || 1)); applyGlow();
     if (lastW) resize(lastW, lastH); return quality;
   }
+  // Glow around the notes: 0 none, 1 a little (the default: the letters stay readable), 2 the full soft glow.
+  const GLOW = [{ bloom: 0, sprite: 0, hot: 0.25 }, { bloom: 0.1, sprite: 0.15, hot: 0.35 }, { bloom: 0.55, sprite: 0.55, hot: 0.85 }];
+  let glowLevel = 1;
+  function applyGlow() {
+    const g = GLOW[glowLevel]; bloom.strength = g.bloom; bloom.enabled = glowLevel > 0 && quality < 2;
+    glows.forEach(sp => { sp.material.opacity = g.sprite; }); hotI = g.hot;
+    for (const [k, m] of matCache) if (k.endsWith("h")) m.emissiveIntensity = g.hot;           // the "being played" materials made so far
+  }
+  function setGlow(level) { glowLevel = Math.max(0, Math.min(2, level | 0)); applyGlow(); }
+  applyGlow();
   // compile every shader now (hands included, though hidden) so switching the hands on later doesn't freeze the picture for a second
   try { renderer.compile(scene, camera); } catch (e) { console.warn("shader precompile skipped:", e); }
-  return { render, resize, setColors, setSkin, setQuality, dispose() { renderer.dispose(); el.remove(); } };
+  return { render, resize, setColors, setSkin, setQuality, setGlow, dispose() { renderer.dispose(); el.remove(); } };
 }
