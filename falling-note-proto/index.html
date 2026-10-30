@@ -695,7 +695,10 @@ function seek(t) {
   if (S.playing) { S.anchorPos = t; S.anchorCtx = ac.currentTime + 0.03; } else S.anchorPos = t;
   resetSched(t);
 }
-function setSpeed(v) { const p = pos(); S.speed = v; if (S.playing) { S.anchorPos = p; S.anchorCtx = ac.currentTime; } }
+function setSpeed(v) {
+  const p = pos(); S.speed = v; if (S.playing) { S.anchorPos = p; S.anchorCtx = ac.currentTime; }
+  syncSound(); resetSched(S.playing ? p : S.anchorPos);          // slower or faster than 1x switches a video song to the piano sound (see syncSound)
+}
 
 const allowed = n => S.hands === "both" || (S.hands === "right" ? n.h === 0 : n.h === 1);
 
@@ -1406,7 +1409,9 @@ function rightsOk() {
   row.scrollIntoView({ block: "center", behavior: "smooth" }); cb.focus({ preventScroll: true });
   return false;
 }
-$("rights").addEventListener("change", () => { if ($("rights").checked) { $("rights").closest(".rights").classList.remove("need"); $("rightsMsg").hidden = true; } });
+try { if (localStorage.getItem("wn.rights") === "1") $("rights").checked = true; } catch (e) {}      // your own earlier tick, remembered so you are not asked every time
+$("rights").addEventListener("change", () => {
+  try { localStorage.setItem("wn.rights", $("rights").checked ? "1" : "0"); } catch (e) {} if ($("rights").checked) { $("rights").closest(".rights").classList.remove("need"); $("rightsMsg").hidden = true; } });
 // The site's own embedded player for a link, if it has one (Instagram posts/reels, YouTube videos).
 function embedFor(url) {
   const h = url.hostname.replace(/^www\./, "").replace(/^m\./, "");
@@ -1639,10 +1644,13 @@ function syncSound() {
   const wantShift = !!song.video && S.transpose !== 0;
   if (wantShift && shift.state === "idle") ensureShift();
   const forced = wantShift && shift.state === "failed";
-  S.synth = S.synthUser || forced;
-  S.shiftPending = wantShift && shift.state === "loading";           // the video stays silent until its shifted sound is ready
+  // A recording's own sound can only be time-stretched when the speed changes, which sounds like a slowed-down recording. Playing the notes on the
+  // piano instead sounds like someone playing slower, so a video song uses the piano sound whenever the speed isn't 1x.
+  const resped = !!song.video && Math.abs(S.speed - 1) > 0.001;
+  S.synth = S.synthUser || forced || resped;
+  S.shiftPending = wantShift && !resped && shift.state === "loading";           // the video stays silent until its shifted sound is ready
   $("synthToggle").classList.toggle("on", S.synth);
-  $("synthToggle").title = forced ? "On while transposed: the video's own sound couldn't be shifted here" : wantShift ? "The video's own sound is shifted to match the transpose" : "";
+  $("synthToggle").title = resped ? "On while the speed isn't 1x: slowing the recording would only stretch it, the piano sounds like playing slower" : forced ? "On while transposed: the video's own sound couldn't be shifted here" : wantShift ? "The video's own sound is shifted to match the transpose" : "";
   routeShift();
 }
 const setTranspose = t => {
