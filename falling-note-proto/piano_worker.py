@@ -84,7 +84,7 @@ def transcribe_file(wav_path, out_path, fast=False):
         note = {"m": int(n["midi_note"]), "t": on, "d": d, "v": min(1.0, max(0.2, float(n["velocity"]) / 127.0))}
         # The model gives a note the length it SOUNDS, and with the sustain pedal down that runs on until the pedal comes up. When a long note
         # ends right as a pedal comes up, the key was probably released earlier: kd is a short "key held" guess, the rest of d is pedal ring.
-        if d > 0.45 and any(a <= off + 0.05 and abs(b - off) <= 0.15 for a, b in pedals):
+        if d > 0.35 and any(a <= off + 0.05 and abs(b - off) <= 0.15 for a, b in pedals):
             note["kd"] = 0.3
         notes.append(note)
     with open(out_path, "w") as f:

@@ -334,7 +334,7 @@
           <button id="eClean" title="Remove very short notes (under 50 ms)">Remove blips</button>
           <select id="eSnap" title="Move notes onto the beat grid (selected notes, or all if none selected)"><option value="">Snap to beat…</option><option value="4">1/4</option><option value="8">1/8</option><option value="16">1/16</option><option value="32">1/32</option></select>
           <select id="eTempo" title="Make the whole song faster or slower for good (Undo brings it back)"><option value="">Change tempo…</option><option value="0.5">Half speed</option><option value="0.75">Slower (x0.75)</option><option value="1.25">Faster (x1.25)</option><option value="1.5">Faster (x1.5)</option><option value="2">Double speed</option></select>
-          <select id="eTidy" title="Remove likely false notes (very short, very quiet, quiet low bass). Undo brings them back."><option value="">Clean up…</option><option value="gentle">Gentle</option><option value="medium">Medium</option><option value="strong">Strong</option></select>
+          <select id="eTidy" title="Remove likely false notes (very short, very quiet, quiet low bass). Undo brings them back."><option value="">Clean up…</option><option value="gentle">Gentle</option><option value="medium">Medium</option><option value="strong">Strong</option><option value="trim">Shorten long bars (pedal)</option></select>
           <button id="eZoomOut" aria-label="Zoom out">&minus;</button><button id="eZoomIn" aria-label="Zoom in">+</button>
           <button id="eSave" title="Save to your library">Save</button>
         </div>
@@ -397,7 +397,7 @@
               <div class="sgroup">Playing</div>
               <label class="srow"><span>Play along with</span><select id="hands"><option value="both">Both hands</option><option value="right">Right hand</option><option value="left">Left hand</option></select></label>
               <label class="srow"><span>Camera</span><select id="viewMode"><option value="flat">Straight down (notes fall vertically)</option><option value="tilt">3D tilt</option></select></label>
-              <label class="srow"><span>Pedal</span><select id="pedalMode"><option value="split">Show key vs pedal ring (estimate)</option><option value="off">One bar per note</option></select></label>
+              <label class="srow"><span>Pedal</span><select id="pedalMode"><option value="hide">Hide pedal sustain (only held keys)</option><option value="ring">Show pedal sustain faintly</option><option value="full">Full length (key + pedal)</option></select></label>
               <label class="srow"><span>Piano view</span><select id="zoom"><option value="auto">Zoom to the song</option><option value="full">Full piano</option></select></label>
               <div class="toggles">
                 <button id="letters" class="on" title="Show note names on the bars">Letters</button>
@@ -619,7 +619,7 @@ const LOOKAHEAD = 0.25; // seconds of audio scheduled ahead
 const rec = { on: false, notes: [], open: new Map(), count: 0 };
 S.metroVol = 0.6; S.beats = 4; S.showHands = false;
 try { S.showHands = localStorage.getItem("wn.showHands") === "1"; } catch (e) {}
-S.letters = true; S.transpose = 0; S.synth = S.synthUser = true; S.showVideo = true; S.zoom = "auto"; S.view = "flat"; S.pedal = true;
+S.letters = true; S.transpose = 0; S.synth = S.synthUser = true; S.showVideo = true; S.zoom = "auto"; S.view = "flat"; S.pedal = "hide";
 let editorUI = null;     // set once editor.js has loaded; declared up here because syncUI() runs at start-up
 
 function pos() {
@@ -1515,7 +1515,7 @@ $("restart").onclick = () => seek(S.loopOn && S.loopA != null ? S.loopA : 0);
 $("look").onchange = e => { S.look = e.target.value; };
 $("zoom").onchange = e => { S.zoom = e.target.value; };
 $("viewMode").onchange = e => { S.view = e.target.value; };
-$("pedalMode").onchange = e => { S.pedal = e.target.value === "split"; };
+$("pedalMode").onchange = e => { S.pedal = e.target.value; };
 
 // ---- tempo, metronome, colors ----
 function showSpeed() {            // keeps the dock's speed menu and the Settings slider in step

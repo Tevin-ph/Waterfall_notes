@@ -200,6 +200,11 @@ export function initEditor(api) {
     strong: n => n.d < 0.12 || (n.v < 0.35 && n.d < 0.3) || (n.m < 48 && n.v < 0.45),
   };
   $("eTidy").onchange = e => {
+    if (e.target.value === "trim") {      // for songs with no pedal information: show long bars as a short held key (Settings > Pedal brings the full length back). No note is removed or joined.
+      e.target.value = ""; let cut = 0;
+      edit(() => { for (const { n } of sources()) if (n.d > 0.6 && n.kd == null) { n.kd = 0.35; cut++; } });
+      updateInfo(); $("eInfo").textContent += "  ·  " + cut + " long bars now show only a short held key (Undo to bring them back)"; return;
+    }
     const rule = TIDY[e.target.value]; e.target.value = ""; if (!rule) return;
     let gone = 0;
     edit(() => { for (const { list } of sources()) for (let i = list.length - 1; i >= 0; i--) if (rule(list[i])) { list.splice(i, 1); gone++; } sel = new Set(); });
