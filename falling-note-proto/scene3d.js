@@ -273,11 +273,11 @@ export function createScene(stage) {
     for (; gi < glows.length; gi++) glows[gi].visible = false;
     stepSparks(dt);
 
-    const b0 = Math.ceil(p / beatLen - 1e-6);
+    const off = s.beatOff || 0, bar = s.bar || 4, b0 = Math.ceil((p - off) / beatLen - 1e-6);
     beatPool.forEach((b, j) => {
-      const beat = b0 + j, d = beat * beatLen - p;
+      const beat = b0 + j, d = off + beat * beatLen - p;
       b.visible = d >= 0 && d <= lookAhead;
-      if (b.visible) { b.position.set(0, 0, -d * zps); b.material = beat % 4 === 0 ? beatBar : beatMinor; }
+      if (b.visible) { b.position.set(0, 0, -d * zps); b.material = beat % bar === 0 ? beatBar : beatMinor; }
     });
     [loopA, loopB].forEach((t, j) => {
       const d = t == null ? -1 : t - p, m = loopMarks[j];
@@ -286,5 +286,10 @@ export function createScene(stage) {
     composer.render();
   }
 
-  return { render, resize, dispose() { renderer.dispose(); el.remove(); } };
+  // Hand colors are chosen by the player. Keys and sparks pick them up the next time they light.
+  function setColors(r, l) {
+    HAND[0] = new T.Color(r).getHex(); HAND[1] = new T.Color(l).getHex();
+    for (const m in keys) keys[m].hand = -2;                 // forces each key to repaint with the new colors
+  }
+  return { render, resize, setColors, dispose() { renderer.dispose(); el.remove(); } };
 }

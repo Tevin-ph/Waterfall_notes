@@ -24,8 +24,12 @@ export function initEditor(api) {
   const handOf = n => (n.h != null ? n.h : n.m < 60 ? 1 : 0);
 
   // ---------- history ----------
-  const snapshot = () => { const s = song(); return JSON.stringify({ base: s.base, layers: s.layers }); };
-  const restore = str => { const s = song(), o = JSON.parse(str); s.base = o.base; s.layers = o.layers; commit(false); };
+  const snapshot = () => { const s = song(); return JSON.stringify({ base: s.base, layers: s.layers, bpm: s.bpm, off: s.off || 0 }); };
+  const restore = str => {
+    const s = song(), o = JSON.parse(str); s.base = o.base; s.layers = o.layers;
+    if (o.bpm) { s.bpm = o.bpm; s.off = o.off || 0; api.tempoChanged(); }          // Undo also takes back a tempo change
+    commit(false);
+  };
   const remember = () => { undo.push(snapshot()); if (undo.length > 60) undo.shift(); redo = []; };
   function commit(save = true) {
     api.rebuild(); api.resetSched(api.pos());
@@ -77,7 +81,7 @@ export function initEditor(api) {
     for (const n of s.notes) {
       const r = noteRect(n); if (r.x > W || r.x + r.w < 0 || r.y > H || r.y + r.h < RULER) continue;
       const on = sel.has(n.id), hand = handOf(n);
-      cx.fillStyle = HAND[hand]; cx.globalAlpha = n.t <= p && n.t + n.d >= p ? 1 : 0.88; cx.beginPath(); cx.roundRect(r.x, r.y, r.w, r.h, 3); cx.fill(); cx.globalAlpha = 1;
+      cx.fillStyle = (api.hand || HAND)[hand]; cx.globalAlpha = n.t <= p && n.t + n.d >= p ? 1 : 0.88; cx.beginPath(); cx.roundRect(r.x, r.y, r.w, r.h, 3); cx.fill(); cx.globalAlpha = 1;
       if (on) { cx.strokeStyle = "#fff"; cx.lineWidth = 2; cx.stroke(); cx.lineWidth = 1; }
       if (r.w > 20) { cx.fillStyle = "#0e0e14"; cx.font = "600 10px system-ui"; cx.fillText(NAMES[n.m % 12], r.x + 4, r.y + ROW - 5); }
     }
@@ -200,6 +204,28 @@ export function initEditor(api) {
     let gone = 0;
     edit(() => { for (const { list } of sources()) for (let i = list.length - 1; i >= 0; i--) if (rule(list[i])) { list.splice(i, 1); gone++; } sel = new Set(); });
     updateInfo(); $("eInfo").textContent += "  ·  removed " + gone + " likely false notes (Undo to bring them back)";
+  };
+  // Snap to beat: starts move to the nearest 1/4, 1/8, 1/16 or 1/32 of a beat grid built from the song's tempo (set it in Settings, or
+  // tap it). Lengths round to the grid too, never shorter than one step. Selected notes only, or all when nothing is selected.
+  $("eSnap").onchange = e => {
+    const div = parseInt(e.target.value, 10); e.target.value = ""; if (!div) return;
+    const s = song(), step = 60 / s.bpm * 4 / div, off = s.off || 0;
+    const targets = sel.size ? selected() : sources();
+    edit(() => { for (const { n } of targets) {
+      n.t = Math.max(0, Math.round(((Math.round((n.t - off) / step) * step) + off) * 1000) / 1000);
+      n.d = Math.max(step, Math.round(Math.round(n.d / step) * step * 1000) / 1000);
+    } });
+    $("eInfo").textContent += "  ·  snapped " + targets.length + " notes to 1/" + div;
+  };
+  // Change tempo: a faster or slower version of the whole song (notes and beats scaled together). A song with a video can't be changed,
+  // since the video's sound would no longer match.
+  $("eTempo").onchange = e => {
+    const f = parseFloat(e.target.value); e.target.value = ""; if (!f) return;
+    const s = song();
+    if (s.video) { $("eInfo").textContent = "This song has a video, so its tempo can't be changed (the sound wouldn't match). Use the Speed slider to practise slower."; return; }
+    edit(() => { for (const { n } of sources()) { n.t = Math.round(n.t / f * 1000) / 1000; n.d = Math.max(0.03, Math.round(n.d / f * 1000) / 1000); if (n.kd != null) n.kd = n.kd / f; }
+                 s.bpm = Math.max(30, Math.min(240, s.bpm * f)); s.off = (s.off || 0) / f; });
+    api.tempoChanged(); $("eInfo").textContent += "  ·  tempo x" + f + " (Undo to go back)";
   };
   $("eZoomIn").onclick = () => { pps = Math.min(600, pps * 1.3); clampScroll(); }; $("eZoomOut").onclick = () => { pps = Math.max(30, pps / 1.3); clampScroll(); };
   $("eSave").onclick = async () => { const b = $("eSave"); const ok = await api.save(); b.textContent = ok ? "Saved ✓" : "Nothing to save"; setTimeout(() => { b.textContent = "Save"; }, 1500); };
