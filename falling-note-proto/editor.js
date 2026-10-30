@@ -203,13 +203,15 @@ export function initEditor(api) {
     if (e.target.value === "trim") {      // for songs with no pedal information: show long bars as a short held key (Settings > Pedal brings the full length back). No note is removed or joined.
       e.target.value = ""; let cut = 0;
       edit(() => {
-        // Same guess as the piano helper: a key is held until the next note in the same hand (never more than the bar's own length).
+        // Same guess as the piano helper (tuned against real key releases): half the time to the next note in the same hand, at least 0.15 s and
+        // at most 0.6 s (never more than the bar's own length), or 1 s at most when nothing follows within 3 s.
         const ons = [[], []]; for (const { n } of sources()) ons[handOf(n)].push(n.t); ons.forEach(a => a.sort((x, y) => x - y));
         for (const { n } of sources()) {
-          if (!(n.d > 0.6 && n.kd == null)) continue;
+          if (!(n.d > 0.2 && n.kd == null)) continue;
           const a = ons[handOf(n)]; let lo = 0, hi = a.length; while (lo < hi) { const mid = (lo + hi) >> 1; if (a[mid] <= n.t + 0.04) lo = mid + 1; else hi = mid; }
           const gap = lo < a.length ? a[lo] - n.t : null;
-          n.kd = Math.round((gap != null && gap <= 3 ? Math.min(n.d, Math.max(0.15, gap - 0.03)) : Math.min(n.d, 1)) * 1000) / 1000; cut++;
+          const kd = Math.round((gap != null && gap <= 3 ? Math.min(n.d, Math.max(0.15, Math.min(0.6, 0.5 * gap))) : Math.min(n.d, 1)) * 1000) / 1000;
+          if (kd < n.d - 0.08) { n.kd = kd; cut++; }
         }
       });
       updateInfo(); $("eInfo").textContent += "  ·  " + cut + " long bars now show only the part where the key is held (Undo to bring them back)"; return;
