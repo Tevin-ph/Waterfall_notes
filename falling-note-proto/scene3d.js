@@ -220,27 +220,70 @@ export function createScene(stage) {
     }
   };
 
-  // ---------- hands: two simple hands that play the song (optional) ----------
-  // Each finger goes to a key that is sounding, or to the chord coming next, and presses down while it sounds. Which finger plays which
-  // key is a simple guess (thumb on the inside), not real fingering.
-  const SKIN = 0xe2b394, UP = new T.Vector3(0, 1, 0), tmpA = new T.Vector3(), tmpB = new T.Vector3(), tmpD = new T.Vector3();
-  const cylGeo = new T.CylinderGeometry(0.26, 0.3, 1, 12), tipGeo = new T.SphereGeometry(0.28, 14, 12);
+  // ---------- hands: two hands that play the song (optional) ----------
+  // Built from simple shapes but with real proportions (a hand is about 18 cm: palm 10 cm, fingers 7-8 cm; a white key is 2.3 cm, here 0.93 units):
+  // a shaped palm, a tapered wrist, fingers of three joints that arch and press down, a thumb of two, fingernails. Each finger goes to a key that is
+  // sounding, or to the chord coming next. Which finger plays which key is a rough guess, not real fingering.
+  const UP = new T.Vector3(0, 1, 0), tmpD = new T.Vector3(), tmpP = new T.Vector3(), PK = new T.Vector3(), PE = new T.Vector3(), PD = new T.Vector3(), PT = new T.Vector3();
   const PATTERN = { 1: [1], 2: [0, 2], 3: [0, 2, 4], 4: [0, 1, 2, 4], 5: [0, 1, 2, 3, 4] };       // which fingers play 1..5 keys (0 = thumb)
+  // thumb, index, middle, ring, little: bone lengths, thickness, where the finger leaves the palm (kx across, kz along) for a right hand seen from above
+  const FINGERS = [
+    { l: [1.45, 1.1], r: 0.38, kx: -2.2, kz: 2.2 },
+    { l: [1.5, 0.95, 0.8], r: 0.33, kx: -1.35, kz: 0.2 },
+    { l: [1.65, 1.05, 0.85], r: 0.34, kx: -0.45, kz: 0 },
+    { l: [1.5, 0.98, 0.8], r: 0.32, kx: 0.45, kz: 0.15 },
+    { l: [1.2, 0.72, 0.7], r: 0.28, kx: 1.35, kz: 0.45 },
+  ];
+  const ZK = 4.1;                                                        // where the knuckle line of a resting hand sits (the key edge is at 0)
+  const skinMats = [];                                                   // every skin material, so the tone can be changed
+  let skinHex = 0xe0b08c;
+  const mkSkin = (rough = 0.62) => { const m = new T.MeshStandardMaterial({ color: skinHex, roughness: rough, metalness: 0, envMapIntensity: 0.5 }); skinMats.push(m); return m; };
+  function palmGeometry() {                                              // outline seen from above: x across, y toward the wrist (negative); knuckle edge at 0
+    const s = new T.Shape();
+    s.moveTo(-1.95, -0.1); s.quadraticCurveTo(-1.95, 0.25, -1.55, 0.25); s.lineTo(1.65, 0.25); s.quadraticCurveTo(2.1, 0.25, 2.05, -0.3);
+    s.lineTo(1.75, -2.6); s.quadraticCurveTo(1.55, -4.4, 0.6, -4.6); s.lineTo(-0.7, -4.6); s.quadraticCurveTo(-1.9, -4.4, -2.1, -3.0);
+    s.quadraticCurveTo(-2.7, -1.9, -2.55, -0.9); s.quadraticCurveTo(-2.35, -0.2, -1.95, -0.1);
+    const g = new T.ExtrudeGeometry(s, { depth: 0.5, bevelEnabled: true, bevelThickness: 0.25, bevelSize: 0.22, bevelSegments: 5, curveSegments: 14 });
+    g.rotateX(-Math.PI / 2);                                             // (x, y, z) -> (x, z, -y): the shape's negative y (toward the wrist) lands at positive world z
+    return g;
+  }
+  const palmGeo = palmGeometry();
   const handObjs = [0, 1].map(h => {
     const g = new T.Group(); g.visible = false; scene.add(g);
-    const skin = new T.MeshStandardMaterial({ color: SKIN, roughness: 0.55, transparent: true, opacity: 0.9, depthWrite: false });
-    const palm = new T.Mesh(new T.RoundedBoxGeometry(3.7, 0.5, 1.9, 3, 0.22), skin), arm = new T.Mesh(new T.RoundedBoxGeometry(2.2, 0.55, 7, 3, 0.22), skin);
-    g.add(palm, arm);
-    const fingers = [0, 1, 2, 3, 4].map(() => {
-      const seg = new T.Mesh(cylGeo, skin), tm = skin.clone(), tip = new T.Mesh(tipGeo, tm);
-      g.add(seg, tip); return { seg, tip, tm, x: 0, y: 1, z: 2 };
+    const skin = mkSkin(), nailMat = new T.MeshStandardMaterial({ color: 0xf4d9cf, roughness: 0.3, metalness: 0 });
+    const palm = new T.Mesh(palmGeo, skin); g.add(palm);
+    const arm = new T.Mesh(new T.CylinderGeometry(1.15, 1.4, 7, 24), skin); arm.rotation.x = Math.PI / 2; g.add(arm);                // tapered wrist and forearm along z
+    const fingers = FINGERS.map(F => {
+      const n = F.l.length, tipMat = mkSkin(0.55), parts = [], knuckle = new T.Mesh(new T.SphereGeometry(F.r * 1.12, 16, 12), skin);
+      g.add(knuckle);
+      for (let k = 0; k < n; k++) {
+        const r = F.r * (1 - 0.07 * k), mesh = new T.Mesh(new T.CapsuleGeometry(r, F.l[k], 6, 14), k === n - 1 ? tipMat : skin);
+        g.add(mesh); parts.push(mesh);
+      }
+      const nail = new T.Mesh(new T.SphereGeometry(F.r * 0.62, 12, 10), nailMat);
+      nail.scale.set(0.95, 0.28, 1.15); nail.position.set(0, F.l[n - 1] / 2 - F.r * 0.1, F.r * 0.62); parts[n - 1].add(nail);          // a nail on top of the last bone
+      return { parts, knuckle, tipMat, x: 0, y: 1, z: 2 };
     });
-    return { g, palm, arm, fingers, cx: h ? -4 : 4, ready: false };
+    return { g, palm, arm, fingers, cx: h ? -4 : 4, ready: false, h };
   });
+  function setSkin(hex) { skinHex = new T.Color(hex).getHex(); for (const m of skinMats) m.color.setHex(skinHex); }
+  function capsuleBetween(mesh, a, b) {
+    tmpD.subVectors(b, a); const len = tmpD.length() || 1e-3;
+    mesh.position.copy(a).addScaledVector(tmpD, 0.5); mesh.quaternion.setFromUnitVectors(UP, tmpD.multiplyScalar(1 / len));
+  }
+  // two bones l1 then l2 from K to T with the middle joint arched upward (a finger bends up at its middle joint, not sideways)
+  function ik2(K, T3, l1, l2, E) {
+    tmpD.subVectors(T3, K); let dist = tmpD.length(); dist = Math.min(l1 + l2 - 0.02, Math.max(Math.abs(l1 - l2) + 0.05, dist)); tmpD.normalize();
+    const x = (l1 * l1 - l2 * l2 + dist * dist) / (2 * dist), hgt = Math.sqrt(Math.max(0, l1 * l1 - x * x));
+    tmpP.set(0, 1, 0).addScaledVector(tmpD, -tmpD.y);
+    if (tmpP.lengthSq() < 1e-4) tmpP.set(0, 0, 1);
+    tmpP.normalize();
+    E.copy(K).addScaledVector(tmpD, x).addScaledVector(tmpP, hgt);
+  }
   function updateHands(dt, act, next) {
     const k = 1 - Math.exp(-dt * 12);
     handObjs.forEach((o, h) => {
-      const pressing = act[h].length > 0;
+      const pressing = act[h].length > 0, sx = h ? -1 : 1;                // the left hand is the right hand mirrored
       let ks = (pressing ? act[h] : next[h].ks).slice().sort((a, b) => a - b);
       if (ks.length > 5) ks = [0, 1, 2, 3, 4].map(i => ks[Math.round(i * (ks.length - 1) / 4)]);
       if (h === 1) ks.reverse();                                            // left hand: thumb on the highest key
@@ -248,22 +291,29 @@ export function createScene(stage) {
       if (!o.ready) { o.cx = tx; o.ready = true; }
       o.cx += (tx - o.cx) * k;
       const slots = PATTERN[ks.length] || [], assigned = {}; slots.forEach((f, i) => { assigned[f] = ks[i]; });
-      const yK = pressing ? 1.05 : 1.25, zK = 3.1;
+      const yK = pressing ? 1.0 : 1.2;                                       // the hand sinks a little when playing
       o.fingers.forEach((f, i) => {
-        const slot = (h ? 2 - i : i - 2) * 0.9, m = assigned[i], key = m != null ? keys[m] : null, down = key && pressing;
-        const tX = key ? key.x : o.cx + slot, tY = key ? (down ? (key.black ? 0.8 : 0.4) : 1.0) : 0.95, tZ = key ? (key.black ? 1.1 : 1.5) : (i === 0 ? 2.4 : 1.9);
+        const F = FINGERS[i], m = assigned[i], key = m != null ? keys[m] : null, down = key && pressing;
+        PK.set(o.cx + sx * F.kx, yK, ZK + F.kz);                            // where this finger leaves the palm
+        const restZ = ZK + F.kz - (i === 0 ? 1.7 : 2.55), tX = key ? key.x : PK.x, tY = key ? (down ? (key.black ? 0.78 : 0.42) : 1.0) : 0.8, tZ = key ? (key.black ? 1.2 : 1.7) : restZ;
         f.x += (tX - f.x) * k; f.y += (tY - f.y) * k; f.z += (tZ - f.z) * k;
-        tmpA.set(o.cx + slot * 0.95, yK, i === 0 ? zK + 0.6 : zK);                  // knuckle
-        tmpB.set(f.x, f.y, f.z);
-        tmpD.subVectors(tmpB, tmpA); const len = Math.max(0.05, tmpD.length());
-        f.seg.position.copy(tmpA).addScaledVector(tmpD, 0.5); f.seg.quaternion.setFromUnitVectors(UP, tmpD.multiplyScalar(1 / len)); f.seg.scale.set(1, len, 1);
-        f.tip.position.copy(tmpB);
-        if (down) { f.tm.emissive.setHex(HAND[h]); f.tm.emissiveIntensity = 0.7; } else { f.tm.emissive.setHex(0); f.tm.emissiveIntensity = 1; }
+        PT.set(f.x, f.y, f.z);
+        f.knuckle.position.copy(PK);
+        if (FINGERS[i].l.length === 2) {                                    // thumb: two bones
+          ik2(PK, PT, F.l[0], F.l[1], PE);
+          capsuleBetween(f.parts[0], PK, PE); capsuleBetween(f.parts[1], PE, PT);
+        } else {                                                            // finger: three bones; the last two share the second bone of the arch
+          ik2(PK, PT, F.l[0], F.l[1] + F.l[2], PE);
+          PD.lerpVectors(PE, PT, F.l[1] / (F.l[1] + F.l[2])); PD.y -= 0.1;      // a slight curl at the last joint
+          capsuleBetween(f.parts[0], PK, PE); capsuleBetween(f.parts[1], PE, PD); capsuleBetween(f.parts[2], PD, PT);
+        }
+        if (down) { f.tipMat.emissive.setHex(HAND[h]); f.tipMat.emissiveIntensity = 0.55; } else { f.tipMat.emissive.setHex(0); f.tipMat.emissiveIntensity = 1; }
       });
-      o.palm.position.set(o.cx, yK - 0.05, zK + 1.15); o.arm.position.set(o.cx, yK + 0.05, zK + 5);
+      o.palm.scale.x = sx; o.palm.position.set(o.cx, yK - 0.45, ZK + 0.35);        // the knuckle edge of the palm sits just behind the finger roots
+      o.arm.position.set(o.cx, yK - 0.1, ZK + 6.7);
     });
     const gap = handObjs[0].cx - handObjs[1].cx;                            // keep the hands from sitting on top of each other
-    if (gap < 3.8) { const d = (3.8 - gap) / 2; handObjs[0].cx += d; handObjs[1].cx -= d; }
+    if (gap < 4.4) { const d = (4.4 - gap) / 2; handObjs[0].cx += d; handObjs[1].cx -= d; }
   }
 
   let last = performance.now();
@@ -346,5 +396,5 @@ export function createScene(stage) {
     HAND[0] = new T.Color(r).getHex(); HAND[1] = new T.Color(l).getHex();
     for (const m in keys) keys[m].hand = -2;                 // forces each key to repaint with the new colors
   }
-  return { render, resize, setColors, dispose() { renderer.dispose(); el.remove(); } };
+  return { render, resize, setColors, setSkin, dispose() { renderer.dispose(); el.remove(); } };
 }
