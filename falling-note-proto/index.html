@@ -157,6 +157,11 @@
   .stepper span { min-width:74px; text-align:center; font-variant-numeric:tabular-nums; color:var(--ink); }
   .lbl { color:var(--dim); font-size:12px; }
   /* note editor */
+  .seg { display:inline-flex; align-items:center; border:1px solid var(--line2); border-radius:10px; overflow:hidden; }
+  .seg[hidden] { display:none; }
+  .seg .lbl { padding:0 8px 0 10px; }
+  .seg button { border:0; border-radius:0; padding:7px 11px; background:none; }
+  .seg button.on { background:var(--ink); color:#000; }
   #exportWrap { position:relative; }
   #exportPop { position:absolute; right:0; top:calc(100% + 8px); width:320px; max-width:calc(100vw - 32px); background:var(--card); border:1px solid var(--line2); border-radius:14px; padding:6px; box-shadow:0 18px 50px rgba(0,0,0,.65); z-index:45; display:flex; flex-direction:column; }
   #exportPop[hidden] { display:none; }
@@ -399,6 +404,7 @@
             <option value="0.25">0.25x</option><option value="0.5">0.5x</option><option value="0.75">0.75x</option>
             <option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option>
           </select>
+          <span id="soundSeg" class="seg" hidden><span class="lbl">Sound</span><button id="sndPiano" title="The piano plays the notes. Never stretched, at any speed.">Piano</button><button id="sndOrig" title="The video's own recorded sound.">Original</button></span>
           <span class="sep"></span>
           <span class="lbl" title="Repeat a section to practise it">Repeat</span><button id="loopA" title="Mark where the repeated section starts (at the current position)">Start</button><button id="loopB" title="Mark where the repeated section ends">End</button><button id="loopOn" title="Turn the repeat on or off">Loop</button>
           <span class="sep"></span>
@@ -430,7 +436,6 @@
                 <button id="metro">Metronome</button>
                 <button id="countin">Count-in</button>
                 <button id="vidToggle" class="on" hidden title="Show or hide the video">Video</button>
-                <button id="synthToggle" hidden title="Play the piano sound instead of the video's own audio">Piano sound</button>
               </div>
             </div>
           </div>
@@ -1100,8 +1105,9 @@ function setVideo(blob) {
   if (v.dataset.url) URL.revokeObjectURL(v.dataset.url);
   if (blob) { const u = URL.createObjectURL(blob); v.dataset.url = u; v.src = u; ev.src = u; } else { delete v.dataset.url; v.removeAttribute("src"); v.load(); ev.removeAttribute("src"); ev.load(); }
   v.hidden = true; ev.hidden = true;     // revealed by vidVis() only once the video really has a picture
-  $("vidToggle").hidden = true; $("synthToggle").hidden = !blob;
-  S.synthUser = !blob;                   // with a video, its own sound plays; piano sound is optional
+  $("vidToggle").hidden = true; $("soundSeg").hidden = !blob;
+  let pref = "original"; try { pref = localStorage.getItem("wn.sound") === "piano" ? "piano" : "original"; } catch (e) {}
+  S.synthUser = !blob || pref === "piano";      // a song with no video can only be heard on the piano; with one, the viewer's choice (its own sound the first time)
   syncSound();
 }
 // Show the video panel only when the file really has a picture the browser can draw (no empty black box).
@@ -1726,15 +1732,13 @@ function routeShift() {
 const shiftAhead = () => (shift.state === "ready" && shift.on ? shift.lat : 0);
 function syncSound() {
   const wantShift = !!song.video && S.transpose !== 0;
-  if (wantShift && shift.state === "idle") ensureShift();
-  const forced = wantShift && shift.state === "failed";
-  // A recording's own sound can only be time-stretched when the speed changes, which sounds like a slowed-down recording. Playing the notes on the
-  // piano instead sounds like someone playing slower, so a video song uses the piano sound whenever the speed isn't 1x.
-  const resped = !!song.video && Math.abs(S.speed - 1) > 0.001;
-  S.synth = S.synthUser || forced || resped;
-  S.shiftPending = wantShift && !resped && shift.state === "loading";           // the video stays silent until its shifted sound is ready
-  $("synthToggle").classList.toggle("on", S.synth);
-  $("synthToggle").title = resped ? "On while the speed isn't 1x: slowing the recording would only stretch it, the piano sounds like playing slower" : forced ? "On while transposed: the video's own sound couldn't be shifted here" : wantShift ? "The video's own sound is shifted to match the transpose" : "";
+  if (wantShift && shift.state === "idle" && !S.synthUser) ensureShift();
+  const forced = wantShift && !S.synthUser && shift.state === "failed";            // the pitch shifter could not load: the piano has to do it
+  S.synth = S.synthUser || forced;
+  S.shiftPending = wantShift && !S.synthUser && shift.state === "loading";         // the video stays silent until its shifted sound is ready
+  $("sndPiano").classList.toggle("on", S.synth); $("sndOrig").classList.toggle("on", !S.synth);
+  const slowed = Math.abs(S.speed - 1) > 0.001;
+  $("sndOrig").title = forced ? "The recording's sound couldn't be shifted here, so the piano is playing instead." : slowed ? "The video's own sound, which is stretched while the speed isn't 1x. Choose Piano to hear notes played slower instead." : "The video's own recorded sound.";
   routeShift();
 }
 const setTranspose = t => {
@@ -1840,7 +1844,11 @@ window.addEventListener("resize", () => { if (!$("settingsPop").hidden) placeMen
 $("settingsBtn").onclick = e => { e.stopPropagation(); setMenu($("settingsPop").hidden); };
 document.addEventListener("click", e => { if (!e.target.closest(".menuWrap")) setMenu(false); });
 document.addEventListener("keydown", e => { if (e.key === "Escape") setMenu(false); });
-$("synthToggle").onclick = () => { S.synthUser = !S.synth; syncSound(); resetSched(pos()); };
+function setSound(piano) {
+  S.synthUser = piano; try { localStorage.setItem("wn.sound", piano ? "piano" : "original"); } catch (e) {}
+  syncSound(); resetSched(pos());
+}
+$("sndPiano").onclick = () => setSound(true); $("sndOrig").onclick = () => setSound(false);
 $("midiBtn").onclick = connectKeyboard;
 $("rec").onclick = () => rec.on ? stopRec() : startRec();
 $("saveMidi").onclick = saveMidi;
