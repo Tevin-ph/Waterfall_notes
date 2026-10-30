@@ -53,8 +53,8 @@ def _events_fast(tr, audio, hop_s=HOP_BEST):
     pp = RegressionPostProcessor(tr.frames_per_second, classes_num=tr.classes_num, onset_threshold=tr.onset_threshold,
                                  offset_threshold=tr.offset_threshod, frame_threshold=tr.frame_threshold,
                                  pedal_offset_threshold=tr.pedal_offset_threshold)
-    events, _ = pp.output_dict_to_midi_events(res)
-    return events
+    events, pedal = pp.output_dict_to_midi_events(res)
+    return events, pedal or []
 
 
 def transcribe_file(wav_path, out_path, fast=False):
@@ -71,16 +71,24 @@ def transcribe_file(wav_path, out_path, fast=False):
     audio = np.ascontiguousarray(audio, dtype=np.float32)
     tr = _load_model()
     try:
-        events = _events_fast(tr, audio, HOP_FAST if fast else HOP_BEST)
+        events, pedal_events = _events_fast(tr, audio, HOP_FAST if fast else HOP_BEST)
     except Exception as e:                                # if the faster path ever fails, use the library's own method
         print("fast path failed, using the library's method:", e, file=sys.stderr)
-        events = tr.transcribe(audio, None)["est_note_events"]          # None: don't write a MIDI file
+        out = tr.transcribe(audio, None)                  # None: don't write a MIDI file
+        events, pedal_events = out["est_note_events"], out.get("est_pedal_events") or []
+    pedals = [(float(p["onset_time"]), float(p["offset_time"])) for p in pedal_events]
     notes = []
     for n in events:
         on, off = float(n["onset_time"]), float(n["offset_time"])
-        notes.append({"m": int(n["midi_note"]), "t": on, "d": max(0.03, off - on), "v": min(1.0, max(0.2, float(n["velocity"]) / 127.0))})
+        d = max(0.03, off - on)
+        note = {"m": int(n["midi_note"]), "t": on, "d": d, "v": min(1.0, max(0.2, float(n["velocity"]) / 127.0))}
+        # The model gives a note the length it SOUNDS, and with the sustain pedal down that runs on until the pedal comes up. When a long note
+        # ends right as a pedal comes up, the key was probably released earlier: kd is a short "key held" guess, the rest of d is pedal ring.
+        if d > 0.45 and any(a <= off + 0.05 and abs(b - off) <= 0.15 for a, b in pedals):
+            note["kd"] = 0.3
+        notes.append(note)
     with open(out_path, "w") as f:
-        json.dump({"notes": notes}, f)
+        json.dump({"notes": notes, "pedal": [{"t": a, "d": max(0.05, b - a)} for a, b in pedals]}, f)
 
 
 def serve():

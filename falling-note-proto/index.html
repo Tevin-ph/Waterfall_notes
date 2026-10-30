@@ -369,6 +369,8 @@
             <div id="settingsPop" hidden>
               <label class="srow"><span>Note colors</span><select id="look"><option value="flat">By hand</option><option value="spectrum">By note</option></select></label>
               <label class="srow"><span>Play along with</span><select id="hands"><option value="both">Both hands</option><option value="right">Right hand</option><option value="left">Left hand</option></select></label>
+              <label class="srow"><span>Camera</span><select id="viewMode"><option value="flat">Straight down (notes fall vertically)</option><option value="tilt">3D tilt</option></select></label>
+              <label class="srow"><span>Pedal</span><select id="pedalMode"><option value="split">Show key vs pedal ring (estimate)</option><option value="off">One bar per note</option></select></label>
               <label class="srow"><span>Piano view</span><select id="zoom"><option value="auto">Zoom to the song</option><option value="full">Full piano</option></select></label>
               <div class="toggles">
                 <button id="letters" class="on" title="Show note names on the bars">Letters</button>
@@ -587,7 +589,7 @@ const S = { playing: false, speed: 1, anchorCtx: 0, anchorPos: 0, nextIdx: 0, ne
             loopA: null, loopB: null, loopOn: false, look: "flat", hands: "both" };
 const LOOKAHEAD = 0.25; // seconds of audio scheduled ahead
 const rec = { on: false, notes: [], open: new Map(), count: 0 };
-S.letters = true; S.transpose = 0; S.synth = true; S.showVideo = true; S.zoom = "auto";
+S.letters = true; S.transpose = 0; S.synth = true; S.showVideo = true; S.zoom = "auto"; S.view = "flat"; S.pedal = true;
 let editorUI = null;     // set once editor.js has loaded; declared up here because syncUI() runs at start-up
 
 function pos() {
@@ -694,7 +696,7 @@ function draw() {
   videoSync(p);
   if (gl3d) {
     gl3d.render({ p, notes: song.notes, startIdx: Math.max(0, firstIdx(p - 12)), transpose: S.transpose, allowed, letters: S.letters, look: S.look,
-                  live: liveKeys, beatLen: beatLen(), loopA: S.loopA, loopB: S.loopB, lookAhead: LOOK_AHEAD_SEC, range: viewRange() });
+                  live: liveKeys, beatLen: beatLen(), loopA: S.loopA, loopB: S.loopB, lookAhead: LOOK_AHEAD_SEC, range: viewRange(), view: S.view, pedal: S.pedal });
     const ci = $("countIn");
     ci.textContent = S.countin && S.playing && ac.currentTime < S.anchorCtx ? Math.min(4, Math.ceil((S.anchorCtx - ac.currentTime) / (beatLen() / S.speed))) : "";
     updateTime(p); return;
@@ -1465,6 +1467,8 @@ $("restart").onclick = () => seek(S.loopOn && S.loopA != null ? S.loopA : 0);
 $("speed").onchange = e => setSpeed(parseFloat(e.target.value));
 $("look").onchange = e => { S.look = e.target.value; };
 $("zoom").onchange = e => { S.zoom = e.target.value; };
+$("viewMode").onchange = e => { S.view = e.target.value; };
+$("pedalMode").onchange = e => { S.pedal = e.target.value === "split"; };
 $("hands").onchange =e => { S.hands = e.target.value; resetSched(pos()); };
 $("letters").onclick = () => { S.letters = !S.letters; syncUI(); };
 $("vidToggle").onclick = () => { S.showVideo = !S.showVideo; vidVis(); $("vidToggle").classList.toggle("on", S.showVideo); };
