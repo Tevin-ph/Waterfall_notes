@@ -82,6 +82,11 @@ export function createScene(stage) {
     if (!matCache.has(k)) matCache.set(k, new T.MeshPhysicalMaterial({ color: hex, emissive: hex, emissiveIntensity: dim ? 0.04 : 0.5, roughness: 0.22, clearcoat: 1, clearcoatRoughness: 0.12, transparent: dim, opacity: dim ? 0.2 : 1, depthWrite: !dim }));
     return matCache.get(k);
   };
+  const tailCache = new Map();                   // the pedal ring: the hand colour, see-through but easier to see than a dimmed note
+  const tailMat = hex => {
+    if (!tailCache.has(hex)) tailCache.set(hex, new T.MeshBasicMaterial({ color: hex, transparent: true, opacity: 0.45, depthWrite: false }));
+    return tailCache.get(hex);
+  };
   const spectrum = NAMES.map((_, i) => new T.Color().setHSL(i / 12, 0.85, 0.64, T.SRGBColorSpace).getHex());
   const planeGeo = new T.PlaneGeometry(1, 1), boxGeo = new T.BoxGeometry(1, 1, 1);
   const labelMats = NAMES.map(n => {
@@ -96,9 +101,10 @@ export function createScene(stage) {
   function slot(i) {
     if (!pool[i]) {
       const box = new T.Mesh(boxGeo, noteMat(HAND[0], false)), stripe = new T.Mesh(boxGeo, noteMat(HAND[0], false)), label = new T.Mesh(planeGeo, labelMats[0]);
+      const tail = new T.Mesh(boxGeo, noteMat(HAND[0], true));        // the pedal ring after the key is let go
       label.rotation.x = -Math.PI / 2;
-      for (const o of [box, stripe, label]) { o.visible = false; scene.add(o); }
-      pool[i] = { box, stripe, label };
+      for (const o of [box, stripe, label, tail]) { o.visible = false; scene.add(o); }
+      pool[i] = { box, stripe, label, tail };
     }
     return pool[i];
   }
@@ -116,6 +122,7 @@ export function createScene(stage) {
       const p = sparks[sparkNext++ % sparks.length];
       p.s.position.set(k.x + (Math.random() - 0.5) * 0.5, 0.8, 0.4 + Math.random() * 0.6);
       p.vx = (Math.random() - 0.5) * 2.2; p.vy = 3.5 + Math.random() * 4.5; p.vz = (Math.random() - 0.5) * 1.6;
+      if (vmode === "flat") { p.vy = 1 + Math.random(); p.vz = -(2 + Math.random() * 4); }       // from above, sparks should spray up the screen
       p.life = p.max = 0.55 + Math.random() * 0.4; p.size = 0.35 + Math.random() * 0.45;
       p.s.material.color.setHex(lighten(HAND[hand] ?? HAND[0], 0.35)); p.s.visible = true;
     }
@@ -143,13 +150,22 @@ export function createScene(stage) {
     if (!a || !b) return;
     view.tcx = (a.x + b.x) / 2; view.thalf = (b.x - a.x) / 2 + 2.2;
   }
-  let aspect = 1.5;
-  const F = 38, RAD = Math.PI / 180;
+  let aspect = 1.5, vmode = "flat", zps = ZPS, laneDepth = 40;
+  const F = 38, FF = 24, RAD = Math.PI / 180;   // F: field of view of the tilted view; FF: the straight-down view (narrow, so lanes stay parallel)
   function setCam(D) {
-    camera.aspect = aspect; camera.fov = F;
-    const beta = 42 * RAD, pitch = beta - 0.33 * F * RAD, kz = 3;
-    camera.position.set(view.cx, D * Math.sin(beta), kz + D * Math.cos(beta));
-    camera.lookAt(view.cx, camera.position.y - Math.sin(pitch) * 100, camera.position.z - Math.cos(pitch) * 100);
+    camera.aspect = aspect;
+    if (vmode === "flat") {
+      // Straight down: notes fall vertically, the keyboard is seen from above at the bottom of the screen (like Synthesia).
+      camera.fov = FF; camera.up.set(0, 0, -1);
+      const worldH = 2 * D * Math.tan(FF * RAD / 2), zc = 6.4 - worldH / 2;     // keyboard front edge sits just above the bottom of the frame
+      camera.position.set(view.cx, D, zc); camera.lookAt(view.cx, 0, zc);
+      laneDepth = Math.max(8, worldH - 7);                                        // room above the keyboard for the falling notes
+    } else {
+      camera.fov = F; camera.up.set(0, 1, 0);
+      const beta = 42 * RAD, pitch = beta - 0.33 * F * RAD, kz = 3;
+      camera.position.set(view.cx, D * Math.sin(beta), kz + D * Math.cos(beta));
+      camera.lookAt(view.cx, camera.position.y - Math.sin(pitch) * 100, camera.position.z - Math.cos(pitch) * 100);
+    }
     camera.updateProjectionMatrix(); camera.updateMatrixWorld();
   }
   // How close to the screen edge (1 = edge) a point on the keyboard's FRONT edge lands; the front looks widest.
@@ -159,6 +175,11 @@ export function createScene(stage) {
     return Math.abs(vx / -vz) / (Math.tan(F * RAD / 2) * aspect);
   }
   function placeCamera() {
+    if (vmode === "flat") {
+      const D = Math.max(12, view.half / (Math.tan(FF * RAD / 2) * aspect));
+      setCam(D); scene.fog.near = D + 60; scene.fog.far = D + 400;                 // no distance fade when looking straight down
+      return;
+    }
     let D = Math.max(18, view.half / (Math.tan(F * RAD / 2) * aspect));
     for (let i = 0; i < 5; i++) {
       setCam(D);
@@ -200,6 +221,9 @@ export function createScene(stage) {
   function render(s) {
     const { p, notes, startIdx, transpose, allowed, letters, look, live, beatLen, loopA, loopB, lookAhead } = s;
     const now = performance.now(), dt = Math.min(0.05, (now - last) / 1000); last = now;
+    const want = s.view === "tilt" ? "tilt" : "flat";
+    if (want !== vmode) { vmode = want; placeCamera(); }
+    zps = vmode === "flat" ? laneDepth / lookAhead : ZPS;           // straight down: fit the look-ahead into the screen height
     if (s.range) setRange(s.range[0], s.range[1]);
     if (Math.abs(view.tcx - view.cx) > 0.01 || Math.abs(view.thalf - view.half) > 0.01) {   // ease toward the new range
       view.cx += (view.tcx - view.cx) * 0.12; view.half += (view.thalf - view.half) * 0.12; placeCamera();
@@ -208,12 +232,20 @@ export function createScene(stage) {
     let used = 0;
     for (let i = startIdx; i < notes.length; i++) {
       const n = notes[i]; if (n.t - p > lookAhead) break;
-      const end = n.t + n.d; if (end < p) continue;
+      const full = n.t + n.d; if (full < p) continue;
+      // With the pedal view on, a note that rings on after its key was let go is two parts: the held key (solid) and the pedal ring (faint).
+      const split = s.pedal && n.kd != null && n.kd < n.d - 0.08, end = split ? n.t + n.kd : full;
       const pm = n.m + transpose, k = keys[pm]; if (!k) continue;
       const dim = !allowed(n), w = k.black ? 0.5 : 0.84;
-      const near = -Math.max(0, n.t - p) * ZPS, far = -Math.min(end - p, lookAhead) * ZPS;
+      const near = -Math.max(0, n.t - p) * zps, far = -Math.min(Math.max(end, p) - p, lookAhead) * zps;
       const { g, q } = noteGeo(w, Math.max(0.3, near - far)), zc = near - q / 2;
       const e = slot(used++), hex = spec ? spectrum[pm % 12] : HAND[n.h];
+      e.tail.visible = false;
+      if (split) {
+        const tn = -Math.max(0, end - p) * zps, tf = -Math.min(full - p, lookAhead) * zps, tl = Math.max(0.1, tn - tf);
+        e.tail.visible = true; e.tail.material = tailMat(hex); e.tail.scale.set(w * 0.55, 0.3, tl); e.tail.position.set(k.x, 0.3, tn - tl / 2);
+      }
+      if (end < p) { e.box.visible = e.stripe.visible = e.label.visible = false; continue; }
       e.box.visible = true; e.box.geometry = g; e.box.material = noteMat(hex, dim); e.box.position.set(k.x, 0.3, zc);
       e.stripe.visible = spec && !dim;
       if (e.stripe.visible) { e.stripe.material = noteMat(HAND[n.h], false); e.stripe.position.set(k.x, 0.3, zc); e.stripe.scale.set(w * 0.3, 0.54, q * 0.96); }
@@ -225,7 +257,7 @@ export function createScene(stage) {
       }
       if (n.t <= p && end >= p && !dim) active.set(pm, n.h);
     }
-    for (let i = used; i < pool.length; i++) { const e = pool[i]; e.box.visible = e.stripe.visible = e.label.visible = false; }
+    for (let i = used; i < pool.length; i++) { const e = pool[i]; e.box.visible = e.stripe.visible = e.label.visible = e.tail.visible = false; }
     for (const [m, kk] of live) active.set(m, kk.h);
 
     for (const m in keys) setKey(keys[m], active.has(+m) ? active.get(+m) : -1);
@@ -242,11 +274,11 @@ export function createScene(stage) {
     beatPool.forEach((b, j) => {
       const beat = b0 + j, d = beat * beatLen - p;
       b.visible = d >= 0 && d <= lookAhead;
-      if (b.visible) { b.position.set(0, 0, -d * ZPS); b.material = beat % 4 === 0 ? beatBar : beatMinor; }
+      if (b.visible) { b.position.set(0, 0, -d * zps); b.material = beat % 4 === 0 ? beatBar : beatMinor; }
     });
     [loopA, loopB].forEach((t, j) => {
       const d = t == null ? -1 : t - p, m = loopMarks[j];
-      m.visible = t != null && d >= 0 && d <= lookAhead; if (m.visible) m.position.set(0, 0.04, -d * ZPS);
+      m.visible = t != null && d >= 0 && d <= lookAhead; if (m.visible) m.position.set(0, 0.04, -d * zps);
     });
     composer.render();
   }
