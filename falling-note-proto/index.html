@@ -173,6 +173,13 @@
   .menuWrap { position:relative; }
   #settingsPop { position:absolute; right:0; bottom:calc(100% + 12px); width:310px; background:var(--card); border:1px solid var(--line2); border-radius:14px; padding:10px 16px 14px; box-shadow:0 18px 50px rgba(0,0,0,.65); z-index:40; }
   #settingsPop[hidden] { display:none; }
+  #settingsPop { max-height:min(72vh, 620px); overflow-y:auto; }
+  .sgroup { margin:10px 0 2px; padding-top:10px; border-top:1px solid var(--line); font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--dim); }
+  .sgroup:first-child { margin-top:2px; padding-top:0; border-top:0; }
+  .srow input[type=range] { flex:1; min-width:90px; accent-color:var(--accent); }
+  .srow b { min-width:42px; text-align:right; font-weight:500; font-variant-numeric:tabular-nums; }
+  .srow input[type=color] { width:44px; height:28px; padding:0; border:1px solid var(--line2); border-radius:8px; background:none; cursor:pointer; }
+  .srow .stepper span { min-width:78px; }
   .srow { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:7px 0; }
   .srow > span { color:var(--dim); }
   .srow select { min-width:150px; }
@@ -318,6 +325,8 @@
         </div>
         <div class="eGrp">
           <button id="eClean" title="Remove very short notes (under 50 ms)">Remove blips</button>
+          <select id="eSnap" title="Move notes onto the beat grid (selected notes, or all if none selected)"><option value="">Snap to beat…</option><option value="4">1/4</option><option value="8">1/8</option><option value="16">1/16</option><option value="32">1/32</option></select>
+          <select id="eTempo" title="Make the whole song faster or slower for good (Undo brings it back)"><option value="">Change tempo…</option><option value="0.5">Half speed</option><option value="0.75">Slower (x0.75)</option><option value="1.25">Faster (x1.25)</option><option value="1.5">Faster (x1.5)</option><option value="2">Double speed</option></select>
           <select id="eTidy" title="Remove likely false notes (very short, very quiet, quiet low bass). Undo brings them back."><option value="">Clean up…</option><option value="gentle">Gentle</option><option value="medium">Medium</option><option value="strong">Strong</option></select>
           <button id="eZoomOut" aria-label="Zoom out">&minus;</button><button id="eZoomIn" aria-label="Zoom in">+</button>
           <button id="eSave" title="Save to your library">Save</button>
@@ -369,6 +378,16 @@
             <button id="settingsBtn" aria-haspopup="true" aria-expanded="false">Settings</button>
             <div id="settingsPop" hidden>
               <label class="srow"><span>Note colors</span><select id="look"><option value="flat">By hand</option><option value="spectrum">By note</option></select></label>
+              <div class="sgroup">Tempo and metronome</div>
+              <label class="srow"><span>Speed</span><input id="speedRange" type="range" min="25" max="200" step="5" value="100" aria-label="Playback speed"><b id="speedVal">100%</b></label>
+              <div class="srow"><span>Song tempo</span><div class="stepper"><button id="bpmDown" aria-label="Slower tempo">&minus;</button><span id="bpmVal">100 BPM</span><button id="bpmUp" aria-label="Faster tempo">+</button></div><button id="tap" title="Tap along to the beat while it plays: sets the tempo and lines the beats up">Tap</button></div>
+              <label class="srow"><span>Metronome volume</span><input id="metroVol" type="range" min="0" max="100" value="60" aria-label="Metronome volume"></label>
+              <label class="srow"><span>Beats per bar</span><select id="beatsBar"><option value="2">2</option><option value="3">3</option><option value="4" selected>4</option><option value="6">6</option></select></label>
+              <div class="sgroup">Colors</div>
+              <div class="srow"><span>Right hand</span><input id="colR" type="color" value="#4db5ff" aria-label="Right hand color"></div>
+              <div class="srow"><span>Left hand</span><input id="colL" type="color" value="#ff8f4d" aria-label="Left hand color"></div>
+              <label class="srow"><span>Color set</span><select id="colSet"><option value="">Custom</option><option value="#4db5ff,#ff8f4d">Blue and orange</option><option value="#7cf29c,#c58bff">Green and purple</option><option value="#ff5c8a,#ffd24d">Pink and gold</option><option value="#4dffe0,#ff6b4d">Aqua and coral</option><option value="#f2f2f2,#8a8a93">Light and grey</option></select></label>
+              <div class="sgroup">Playing</div>
               <label class="srow"><span>Play along with</span><select id="hands"><option value="both">Both hands</option><option value="right">Right hand</option><option value="left">Left hand</option></select></label>
               <label class="srow"><span>Camera</span><select id="viewMode"><option value="flat">Straight down (notes fall vertically)</option><option value="tilt">3D tilt</option></select></label>
               <label class="srow"><span>Pedal</span><select id="pedalMode"><option value="split">Show key vs pedal ring (estimate)</option><option value="off">One bar per note</option></select></label>
@@ -581,7 +600,7 @@ function playNote(m, vel, when, len) {
 function click(when, accent) {
   const o = ac.createOscillator(), g = ac.createGain();
   o.frequency.value = accent ? 1500 : 1000; o.type = "square";
-  g.gain.setValueAtTime(0.0001, when); g.gain.exponentialRampToValueAtTime(0.12, when + 0.002); g.gain.exponentialRampToValueAtTime(0.0001, when + 0.05);
+  g.gain.setValueAtTime(0.0001, when); g.gain.exponentialRampToValueAtTime(Math.max(0.0002, 0.2 * S.metroVol), when + 0.002); g.gain.exponentialRampToValueAtTime(0.0001, when + 0.05);
   o.connect(g); g.connect(ac.destination); o.start(when); o.stop(when + 0.06);
 }
 
@@ -590,6 +609,7 @@ const S = { playing: false, speed: 1, anchorCtx: 0, anchorPos: 0, nextIdx: 0, ne
             loopA: null, loopB: null, loopOn: false, look: "flat", hands: "both" };
 const LOOKAHEAD = 0.25; // seconds of audio scheduled ahead
 const rec = { on: false, notes: [], open: new Map(), count: 0 };
+S.metroVol = 0.6; S.beats = 4;
 S.letters = true; S.transpose = 0; S.synth = S.synthUser = true; S.showVideo = true; S.zoom = "auto"; S.view = "flat"; S.pedal = true;
 let editorUI = null;     // set once editor.js has loaded; declared up here because syncUI() runs at start-up
 
@@ -598,8 +618,9 @@ function pos() {
   return S.anchorPos + Math.max(0, ac.currentTime - S.anchorCtx) * S.speed;
 }
 const beatLen = () => 60 / song.bpm;
+const beatOff = () => song.off || 0;           // where beat 0 falls (seconds), so a song whose first beat isn't at 0:00 can still be lined up
 function firstIdx(t) { let lo = 0, hi = song.notes.length; while (lo < hi) { const mid = (lo + hi) >> 1; if (song.notes[mid].t < t - 1e-6) lo = mid + 1; else hi = mid; } return lo; }
-function resetSched(p) { S.nextIdx = firstIdx(p); S.nextBeat = Math.ceil(p / beatLen() - 1e-6); }
+function resetSched(p) { S.nextIdx = firstIdx(p); S.nextBeat = Math.ceil((p - beatOff()) / beatLen() - 1e-6); }
 
 function play() {
   if (!song.notes.length && !rec.on) return;
@@ -636,9 +657,9 @@ function scheduler() {
     const when = S.anchorCtx + (n.t - S.anchorPos) / S.speed;
     if (S.synth && allowed(n) && when >= ac.currentTime - 0.01 && keyGeo[n.m + S.transpose]) playNote(n.m + S.transpose, n.v, Math.max(when, ac.currentTime), n.d / S.speed);
   }
-  while (S.nextBeat * beatLen() < horizon) {
-    const t = S.nextBeat * beatLen(), when = S.anchorCtx + (t - S.anchorPos) / S.speed;
-    if (S.metro && when >= ac.currentTime - 0.01) click(Math.max(when, ac.currentTime), S.nextBeat % 4 === 0);
+  while (beatOff() + S.nextBeat * beatLen() < horizon) {
+    const t = beatOff() + S.nextBeat * beatLen(), when = S.anchorCtx + (t - S.anchorPos) / S.speed;
+    if (S.metro && t >= 0 && when >= ac.currentTime - 0.01) click(Math.max(when, ac.currentTime), ((S.nextBeat % S.beats) + S.beats) % S.beats === 0);
     S.nextBeat++;
   }
 }
@@ -697,7 +718,7 @@ function draw() {
   videoSync(p);
   if (gl3d) {
     gl3d.render({ p, notes: song.notes, startIdx: Math.max(0, firstIdx(p - 12)), transpose: S.transpose, allowed, letters: S.letters, look: S.look,
-                  live: liveKeys, beatLen: beatLen(), loopA: S.loopA, loopB: S.loopB, lookAhead: LOOK_AHEAD_SEC, range: viewRange(), view: S.view, pedal: S.pedal });
+                  live: liveKeys, beatLen: beatLen(), beatOff: beatOff(), bar: S.beats, loopA: S.loopA, loopB: S.loopB, lookAhead: LOOK_AHEAD_SEC, range: viewRange(), view: S.view, pedal: S.pedal });
     const ci = $("countIn");
     ci.textContent = S.countin && S.playing && ac.currentTime < S.anchorCtx ? Math.min(4, Math.ceil((S.anchorCtx - ac.currentTime) / (beatLen() / S.speed))) : "";
     updateTime(p); return;
@@ -954,11 +975,11 @@ function syncUI() {
 function loadSong(s) {
   if (rec.on) stopRec();
   pause();
-  song = { notes: [], base: s.base || s.notes || [], layers: (s.layers || []).map(L => ({ ...L })), dur: 0, bpm: s.bpm || 100, name: s.name || "Untitled",
+  song = { notes: [], base: s.base || s.notes || [], layers: (s.layers || []).map(L => ({ ...L })), dur: 0, bpm: s.bpm || 100, off: s.off || 0, name: s.name || "Untitled",
            minDur: 0, id: s.id || null, created: s.created || null, video: s.video || null };
   rec.count = song.layers.reduce((m, L) => Math.max(m, L.id), 0);
   S.transpose = s.transpose || 0; $("trVal").textContent = trLabel();
-  setVideo(song.video);
+  setVideo(song.video); showBpm();
   rebuild(); S.anchorPos = 0; S.loopA = S.loopB = null; S.loopOn = false; resetSched(0);
   $("title").textContent = song.name; $("hint").style.display = "none"; renderLayers(); syncUI();
 }
@@ -1170,7 +1191,7 @@ async function saveCurrent() {
   song.id = song.id || uid(); song.created = song.created || Date.now();
   let end = 0, count = song.base.length; for (const n of song.base) end = Math.max(end, n.t + n.d);
   for (const L of song.layers) { count += L.notes.length; for (const n of L.notes) end = Math.max(end, n.t + n.d); }
-  await libPut({ id: song.id, name: song.name, created: song.created, updated: Date.now(), bpm: song.bpm, base: song.base,
+  await libPut({ id: song.id, name: song.name, created: song.created, updated: Date.now(), bpm: song.bpm, off: song.off || 0, base: song.base,
                  layers: JSON.parse(JSON.stringify(song.layers)), transpose: S.transpose, count, dur: end,
                  video: song.video && song.video.size <= 250 * 1048576 ? song.video : null });
   return true;
@@ -1477,11 +1498,52 @@ $("trVal").onclick = () => setTranspose(0);
 $("trVal").title = "Click to reset";
 $("play").onclick = () => { if (rec.on) stopRec(); else S.playing ? pause() : play(); };
 $("restart").onclick = () => seek(S.loopOn && S.loopA != null ? S.loopA : 0);
-$("speed").onchange = e => setSpeed(parseFloat(e.target.value));
 $("look").onchange = e => { S.look = e.target.value; };
 $("zoom").onchange = e => { S.zoom = e.target.value; };
 $("viewMode").onchange = e => { S.view = e.target.value; };
 $("pedalMode").onchange = e => { S.pedal = e.target.value === "split"; };
+
+// ---- tempo, metronome, colors ----
+function showSpeed() {            // keeps the dock's speed menu and the Settings slider in step
+  const pct = Math.round(S.speed * 100), sel = $("speed");
+  $("speedRange").value = pct; $("speedVal").textContent = pct + "%";
+  let o = [...sel.options].find(x => Math.abs(parseFloat(x.value) - S.speed) < 0.001 && !x.dataset.custom);
+  if (!o) { o = sel.querySelector("[data-custom]") || sel.appendChild(Object.assign(document.createElement("option"), { }));
+            o.dataset.custom = "1"; o.value = S.speed; o.textContent = pct + "%"; }
+  sel.value = o.value;
+}
+$("speed").onchange = e => { setSpeed(parseFloat(e.target.value)); showSpeed(); };
+$("speedRange").oninput = e => { setSpeed(parseInt(e.target.value, 10) / 100); showSpeed(); };
+function showBpm() { $("bpmVal").textContent = Math.round(song.bpm) + " BPM"; }
+function setBpm(b) { song.bpm = Math.max(30, Math.min(240, Math.round(b * 10) / 10)); showBpm(); resetSched(pos()); }
+$("bpmDown").onclick = () => setBpm(song.bpm - 1);
+$("bpmUp").onclick = () => setBpm(song.bpm + 1);
+const taps = [];
+$("tap").onclick = () => {        // tap on the beat as the song plays: the gaps give the tempo, the last tap sets where the beats fall
+  const now = performance.now(); if (taps.length && now - taps[taps.length - 1].at > 2000) taps.length = 0;
+  taps.push({ at: now, p: pos() }); if (taps.length > 8) taps.shift();
+  if (taps.length >= 3) {
+    const gaps = []; for (let i = 1; i < taps.length; i++) gaps.push((taps[i].at - taps[i - 1].at) / 1000 * S.speed);
+    setBpm(60 / (gaps.reduce((a, b) => a + b, 0) / gaps.length));
+  }
+  if (taps.length >= 2) { const L = beatLen(); song.off = ((taps[taps.length - 1].p % L) + L) % L; resetSched(pos()); }
+};
+$("metroVol").oninput = e => { S.metroVol = parseInt(e.target.value, 10) / 100; };
+$("metroVol").onchange = () => { if (ac) { ensureAudio(); click(ac.currentTime + 0.02, false); } };      // a click to hear the level
+$("beatsBar").onchange = e => { S.beats = parseInt(e.target.value, 10); resetSched(pos()); };
+function setColors(r, l, keep) {
+  HANDCSS[0] = r; HANDCSS[1] = l;
+  document.documentElement.style.setProperty("--right", r); document.documentElement.style.setProperty("--left", l);
+  $("colR").value = r; $("colL").value = l;
+  const pre = [...$("colSet").options].find(o => o.value === r + "," + l); $("colSet").value = pre ? pre.value : "";
+  if (gl3d && gl3d.setColors) gl3d.setColors(r, l);
+  if (!keep) { try { localStorage.setItem("wn.colors", r + "," + l); } catch (e) {} }
+}
+const HANDCSS = ["#4db5ff", "#ff8f4d"];     // shared with the note editor so its roll matches
+$("colR").oninput = e => setColors(e.target.value, HANDCSS[1]);
+$("colL").oninput = e => setColors(HANDCSS[0], e.target.value);
+$("colSet").onchange = e => { if (e.target.value) { const [r, l] = e.target.value.split(","); setColors(r, l); } };
+try { const c = (localStorage.getItem("wn.colors") || "").split(","); if (/^#[0-9a-f]{6}$/i.test(c[0]) && /^#[0-9a-f]{6}$/i.test(c[1])) setColors(c[0], c[1], true); } catch (e) {}
 $("hands").onchange =e => { S.hands = e.target.value; resetSched(pos()); };
 $("letters").onclick = () => { S.letters = !S.letters; syncUI(); };
 $("vidToggle").onclick = () => { S.showVideo = !S.showVideo; vidVis(); $("vidToggle").classList.toggle("on", S.showVideo); };
@@ -1540,7 +1602,7 @@ fetch("/piano/status").then(r => r.text()).then(t => {
 }).catch(() => {});
 // The note editor (editor.js) works through this small interface instead of touching page internals.
 const EDITOR_API = {
-  song: () => song, S, rebuild, resetSched, pos, seek, handOfAuto, renderLayers,
+  song: () => song, S, rebuild, resetSched, pos, seek, handOfAuto, renderLayers, hand: HANDCSS, tempoChanged: () => { showBpm(); resetSched(pos()); },
   save: () => saveCurrent(),
   togglePlay: () => { if (rec.on) stopRec(); else S.playing ? pause() : play(); },
   preview: m => { try { ensureAudio(); if (keyGeo[m]) playNote(m, 0.7, ac.currentTime + 0.01, 0.3); } catch (e) {} },
@@ -1553,7 +1615,7 @@ import("./vendor/icons.js").then(m => {
   $("saveMidi").innerHTML = ico("download") + "Export .mid"; $("saveLib").dataset.label = "Save"; $("saveLib").innerHTML = ico("save") + "Save";
   syncUI();
 }).catch(() => {});
-import("./scene3d.js").then(m => { gl3d = m.createScene($("stage")); cv.style.display = "none"; resize(); })
+import("./scene3d.js").then(m => { gl3d = m.createScene($("stage")); gl3d.setColors(HANDCSS[0], HANDCSS[1]); cv.style.display = "none"; resize(); })
   .catch(e => console.warn("3D scene unavailable, using the 2D view:", e));
 </script>
 </body>
