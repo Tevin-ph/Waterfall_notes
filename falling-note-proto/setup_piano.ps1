@@ -1,4 +1,5 @@
-# One-time setup for the piano-only note model (about 1-2 GB: PyTorch + a 165 MB model file).
+# One-time setup for the piano-only note models (about 1-2 GB: PyTorch + a 165 MB model file for the ByteDance model + the Transkun package).
+# The helper uses Transkun when it is installed and falls back to the ByteDance model.
 # Everything goes under your user folder, outside OneDrive/AppData. Run:  powershell -ExecutionPolicy Bypass -File falling-note-proto\setup_piano.ps1
 $ErrorActionPreference = "Stop"
 $venv = Join-Path $env:USERPROFILE ".waterfall-notes\piano-venv"
@@ -15,6 +16,8 @@ Write-Host "Installing PyTorch (CPU) and the piano transcription library..."
 & $py -m pip install --upgrade pip
 & $py -m pip install torch --index-url https://download.pytorch.org/whl/cpu
 & $py -m pip install piano_transcription_inference
+Write-Host "Installing Transkun, the preferred piano model (its trained weights are inside the package, about 100 MB more)..."
+& $py -m pip install transkun
 
 if (-not (Test-Path $model) -or (Get-Item $model).Length -lt 160MB) {
   Write-Host "Downloading the model file (about 165 MB) from the author's Zenodo page..."

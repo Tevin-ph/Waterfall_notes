@@ -248,7 +248,7 @@
         </select>
       </label>
       <label class="rights sens"><span>Piano model speed</span>
-        <select id="pspeed" title="How the piano model splits the song">
+        <select id="pspeed" title="Only applies to the older fallback model. The Transkun model, used when it is installed, has no speed setting.">
           <option value="best">Best accuracy (still faster than before)</option><option value="fast">Faster (up to ~2x; may miss a few notes where it joins sections)</option>
         </select>
       </label>
@@ -622,6 +622,7 @@ S.metroVol = 0.6; S.beats = 4; S.showHands = false;
 try { S.showHands = localStorage.getItem("wn.showHands") === "1"; } catch (e) {}
 S.letters = true; S.transpose = 0; S.synth = S.synthUser = true; S.showVideo = true; S.zoom = "auto"; S.view = "flat"; S.pedal = "hide";
 let editorUI = null;     // set once editor.js has loaded; declared up here because syncUI() runs at start-up
+const shift = { node: null, state: "idle", srcs: new Map(), lat: 0.12 };        // the video pitch shifter (see ensureShift); state: idle | loading | ready | failed
 
 function pos() {
   if (!S.playing) return S.anchorPos;
@@ -1024,10 +1025,10 @@ function videoSync(p) {
   const inEdit = $("v-edit").classList.contains("show"), v = inEdit ? $("eVideo") : $("pVideo"), other = inEdit ? $("pVideo") : $("eVideo");
   if (other.src && !other.paused) other.pause();
   if (!song.video || !v.src || v.readyState < 1) return;
-  v.muted = S.synth; if (v.playbackRate !== S.speed) v.playbackRate = S.speed;
-  const running = S.playing && ac && ac.currentTime >= S.anchorCtx;
+  v.muted = S.synth || !!S.shiftPending; if (v.playbackRate !== S.speed) v.playbackRate = S.speed;
+  const running = S.playing && ac && ac.currentTime >= S.anchorCtx, ahead = shiftAhead();
   if (running) {
-    if (Math.abs(v.currentTime - p) > 0.3) v.currentTime = Math.min(p, v.duration || p);
+    if (Math.abs(v.currentTime - (p + ahead)) > 0.3) v.currentTime = Math.min(p + ahead, v.duration || p);
     if (v.paused) v.play().catch(() => {});
   } else {
     if (!v.paused) v.pause();
@@ -1494,13 +1495,45 @@ $("recNew").onclick = async () => {
   loadSong({ notes: [], bpm: 100, name: "New recording" }); go("practice"); startRec();
 };
 $("saveLib").onclick = async () => { const ok = await saveCurrent(); const b = $("saveLib"); b.textContent = ok ? "Saved ✓" : "Nothing to save"; setTimeout(() => { b.innerHTML = ico("save") + "Save"; }, 1600); };
-// Transposing must change what you hear. The piano sound follows it. A video's own recorded sound can't be shifted, so while transposed
-// the piano sound takes over (and the video is muted); back at 0 it returns to whatever the toggle says.
+// Transposing must change what you hear. The piano sound follows it. A video's own sound is pitch-shifted live with Signalsmith Stretch
+// (MIT, vendor/signalsmith-stretch.mjs, loaded only when needed). Checked on a 440 Hz tone: +2/-3/+7/+12 semitones came out within a bin of
+// the right pitch. How it sounds on real music is not checked. If it can't load, the piano sound takes over as before.
+async function ensureShift() {
+  if (shift.state !== "idle") return;
+  shift.state = "loading";
+  try {
+    ensureAudio();
+    shift.node = await (await import("./vendor/signalsmith-stretch.mjs")).default(ac);
+    shift.node.connect(ac.destination);
+    shift.lat = (await shift.node.latency()) || 0.12;
+    for (const v of [$("pVideo"), $("eVideo")]) shift.srcs.set(v, ac.createMediaElementSource(v));
+    shift.state = "ready";
+  } catch (e) { console.warn("pitch shifter unavailable, using the piano sound:", e); shift.state = "failed"; }
+  syncSound();
+}
+// Each video's sound goes straight to the speakers, or through the shifter. The shifter delays the sound a little, so the video runs that much ahead.
+function routeShift() {
+  if (shift.state !== "ready") return;
+  const on = !!song.video && S.transpose !== 0;
+  if (shift.on === on && shift.semi === S.transpose) return;
+  shift.on = on; shift.semi = S.transpose;
+  for (const [v, src] of shift.srcs) {
+    try { src.disconnect(); } catch (e) {}
+    src.connect(on ? shift.node : ac.destination);
+    if (song.video && v.src && v.readyState >= 1) v.currentTime = Math.min(pos() + (on ? shift.lat : 0), v.duration || pos());
+  }
+  shift.node.schedule({ active: on, semitones: S.transpose, output: ac.currentTime });
+}
+const shiftAhead = () => (shift.state === "ready" && shift.on ? shift.lat : 0);
 function syncSound() {
-  const forced = !!song.video && S.transpose !== 0;
+  const wantShift = !!song.video && S.transpose !== 0;
+  if (wantShift && shift.state === "idle") ensureShift();
+  const forced = wantShift && shift.state === "failed";
   S.synth = S.synthUser || forced;
+  S.shiftPending = wantShift && shift.state === "loading";           // the video stays silent until its shifted sound is ready
   $("synthToggle").classList.toggle("on", S.synth);
-  $("synthToggle").title = forced ? "On while transposed: the video's own sound can't be shifted" : "";
+  $("synthToggle").title = forced ? "On while transposed: the video's own sound couldn't be shifted here" : wantShift ? "The video's own sound is shifted to match the transpose" : "";
+  routeShift();
 }
 const setTranspose = t => {
   S.transpose = Math.max(-12, Math.min(12, t)); $("trVal").textContent = trLabel();
