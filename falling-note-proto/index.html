@@ -55,10 +55,6 @@
   .chipb { display:flex; align-items:center; gap:10px; padding:11px 16px; border-radius:10px; font-weight:500; background:transparent; }
   .chipb svg { width:15px; height:15px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; }
   .rights { display:flex; align-items:center; gap:10px; margin-top:16px; color:var(--dim); cursor:pointer; width:fit-content; }
-  #advOpts { margin-top:14px; color:var(--dim); }
-  #advOpts summary { cursor:pointer; width:fit-content; font-size:13px; padding:4px 0; user-select:none; }
-  #advOpts summary:hover { color:var(--ink); }
-  #advOpts .advNote { font-size:12.5px; line-height:1.45; max-width:560px; padding:4px 0 2px; }
   .rights input { width:16px; height:16px; accent-color:var(--accent); }
   #embedBox { margin-top:22px; border:1px solid var(--line2); border-radius:14px; background:var(--panel); overflow:hidden; }
   #embedBox[hidden] { display:none; }
@@ -251,19 +247,6 @@
         <button class="act" id="capAudio"title="Listen to the sound of a browser tab (a video you have open) and turn it into notes">Capture audio</button>
         <label class="act" style="cursor:pointer">Choose File<input id="anyFile" type="file" accept=".mid,.midi,.pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.xml,.musicxml,audio/*,video/*,image/*"></label>
       </div>
-      <details id="advOpts"><summary>More options</summary>
-        <div class="advNote">Normally you don't need these: the app picks the best way by itself (Automatic reads the picture if it is a falling-notes video, and listens to the sound otherwise).</div>
-      <label class="rights sens"><span>Note detail</span>
-        <select id="sens" title="How many notes to look for in a recording or video">
-          <option value="auto">Automatic (read the picture if it's a falling-notes video, else listen)</option><option value="picture">Read the picture only</option><option value="score">Read the sheet music in the video</option><option value="piano">Listen: piano model (most accurate)</option><option value="balanced">Listen: balanced (browser only)</option><option value="more">More notes (adds some extras)</option><option value="fewer">Fewer notes, cleaner</option>
-        </select>
-      </label>
-      <label class="rights sens"><span>Older model speed</span>
-        <select id="pspeed" title="Only applies to the older fallback model. The Transkun model, used when it is installed, has no speed setting.">
-          <option value="best">Best accuracy (still faster than before)</option><option value="fast">Faster (up to ~2x; may miss a few notes where it joins sections)</option>
-        </select>
-      </label>
-      </details>
       <div id="createMsg" aria-live="polite"></div>
       <div id="latestCard" hidden>
         <div class="lcText"><div class="lcKicker">Newest file in your Downloads</div><div id="lcName"></div><div id="lcMeta"></div></div>
@@ -1158,7 +1141,7 @@ async function pianoNotes(mono16k) {
   }, 500);
   try {
     dock("Sending the sound to the piano model…", null);
-    const r = await fetch("/transcribe-piano" + ($("pspeed").value === "fast" ? "?speed=fast" : ""), { method: "POST", body: encodeWav(mono16k, 16000) });
+    const r = await fetch("/transcribe-piano", { method: "POST", body: encodeWav(mono16k, 16000) });
     if (!r.ok) { console.warn("piano model:", await r.text()); return null; }
     const notes = (await r.json()).notes || [];
     return notes.length ? notes.map(n => ({ ...n, h: handOfAuto(n.m) })).sort((a, b) => a.t - b.t) : null;
@@ -1177,10 +1160,10 @@ function hasPicture(file) {
 }
 async function audioToNotes(f) {
   try {
-    const mode = $("sens").value, isVid = /^video\//.test(f.type) || /\.(mp4|mov|webm|m4v)$/i.test(f.name);
+    const mode = "auto", isVid = /^video\//.test(f.type) || /\.(mp4|mov|webm|m4v)$/i.test(f.name);
     const hasPic = isVid && await hasPicture(f);          // a recording of a tab's sound is a "video" file with no picture: skip the picture readers quietly
     // A falling-notes video shows the notes on screen: read them off the picture (exact), and only listen if that isn't possible.
-    if (isVid && (mode === "picture" || (mode === "auto" && hasPic))) {
+    if (isVid && hasPic) {
       try {
         const { readPicture } = await import("./picture.js");
         const r = await readPicture(f, (p, label) => dock(label, p));
@@ -1192,12 +1175,11 @@ async function audioToNotes(f) {
         setTimeout(dockHide, i.octaveGuessed ? 9000 : 2500);
         return;
       } catch (e) {
-        if (mode === "picture") throw e;
         console.warn("picture reader:", e.message); dock("Not a falling-notes video. Checking for sheet music…", 0.05);
       }
     }
     // A video that shows sheet music: scan its pages. The result is the music as written (steady timing), not the video's own timing.
-    if (isVid && (mode === "score" || (mode === "auto" && hasPic))) {
+    if (isVid && hasPic) {
       try {
         const { readScoreVideo } = await import("./score.js");
         const r = await readScoreVideo(f, (p, label) => dock(label, p), scanImageBlob, parseMusicXml);
@@ -1208,7 +1190,6 @@ async function audioToNotes(f) {
         setTimeout(dockHide, 12000);
         return;
       } catch (e) {
-        if (mode === "score") throw e;
         if (!e.notScore) say("I saw sheet music but couldn't read it: " + e.message + " I'll listen to the sound instead.", true);
         dock("Listening to the sound instead…", 0.05);
       }
@@ -1226,7 +1207,7 @@ async function audioToNotes(f) {
     };
     // Best accuracy: the piano-only model running in the local helper. If it isn't set up, fall through to the in-browser detector.
     let good = null;
-    if (mode === "piano" || (mode === "auto" && pianoReady)) {
+    if (pianoReady) {
       good = await pianoNotes(await resampled(16000));
       if (!good) say("The piano model isn't available, so I used the general detector instead.", true);
     }
@@ -1237,7 +1218,7 @@ async function audioToNotes(f) {
     // Note detail. Measured on a fast test passage (40 notes, 0.1 s apart): Balanced found 75-80% with 94% correct; More found 85% but
     // only 61% correct (lots of false notes). Notes under ~0.12 s are normal in fast music, so they must not be filtered out.
     const PRESETS = { more: { onset: 0.35, frame: 0.22, minLen: 4, minDur: 0.045 }, balanced: { onset: 0.5, frame: 0.3, minLen: 5, minDur: 0.06 }, fewer: { onset: 0.65, frame: 0.4, minLen: 7, minDur: 0.12 } };
-    const P = PRESETS[mode] || PRESETS.balanced;      // "auto" / "piano" (model unavailable) use Balanced
+    const P = PRESETS.balanced;      // the in-browser detector is only the fallback when the piano model isn't set up
     const notes = await transcriber(mono, "vendor/model.json", p => dock("Turning the sound into notes… " + Math.round(p * 100) + "%", 0.2 + 0.8 * p), P);
     // Drop tiny blips, and only the obvious overtone ghosts: a short, much quieter note an octave/12th/2 octaves above a longer
     // note that starts at the same moment. Real octave doublings (similar loudness) are kept.
@@ -1788,7 +1769,6 @@ resize(); syncUI(); route(); requestAnimationFrame(draw);
 // Use the piano model by default when the helper has it; otherwise start on the in-browser detector.
 fetch("/piano/status").then(r => r.text()).then(t => {
   pianoReady = t.trim() === "ready";
-  if (!pianoReady) $("sens").querySelector('option[value="piano"]').textContent = "Listen: piano model (not set up)";
 }).catch(() => {});
 // The note editor (editor.js) works through this small interface instead of touching page internals.
 const EDITOR_API = {
