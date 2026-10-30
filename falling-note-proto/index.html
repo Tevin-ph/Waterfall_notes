@@ -72,10 +72,13 @@
   #ownBox p { margin:0; color:var(--dim); line-height:1.55; max-width:62ch; }
   #ownBox .tiny { font-size:12.5px; }
   .ownBtns { display:flex; flex-wrap:wrap; align-items:center; gap:10px 22px; }
-  #ytWrap { flex:none; width:min(100%, 480px); }
+  #playerBox { position:relative; flex:none; max-width:100%; }
+  #shield { position:absolute; inset:0; z-index:5; display:grid; place-items:center; text-align:center; padding:20px; border-radius:12px; background:rgba(0,0,0,.45); color:#fff; font-weight:500; cursor:not-allowed; }
+  #shield[hidden] { display:none; }
+  #ytWrap { width:480px; max-width:100%; }
   #ytWrap[hidden], #embedFrame[hidden] { display:none; }
   #ytWrap iframe { width:100%; height:auto !important; aspect-ratio:16/9; border:0; border-radius:12px; background:#000; display:block; }
-  #embedFrame { width:min(100%, 400px); height:560px; border:0; border-radius:12px; background:#000; flex:none; }
+  #embedFrame { width:400px; max-width:100%; height:560px; border:0; border-radius:12px; background:#000; flex:none; }
   .embedSide { flex:1 1 260px; display:flex; flex-direction:column; align-items:flex-start; gap:14px; padding-top:6px; }
   .embedSide h2 { margin:0; font-size:24px; font-weight:500; letter-spacing:-.01em; }
   .embedSide p { margin:0; color:var(--dim); line-height:1.5; max-width:38ch; }
@@ -253,8 +256,11 @@
         </div>
         <div id="embedPlay" hidden>
         <div class="embedBody">
-          <div id="ytWrap" hidden><div id="ytPlayer"></div></div>
-          <iframe id="embedFrame" title="Video to turn into notes" allow="autoplay; encrypted-media; fullscreen; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+          <div id="playerBox">
+            <div id="ytWrap" hidden><div id="ytPlayer"></div></div>
+            <iframe id="embedFrame" title="Video to turn into notes" allow="autoplay; encrypted-media; fullscreen; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+            <div id="shield" aria-live="polite">Press Start first</div>
+          </div>
           <div class="embedSide">
             <h2>Turn this video into notes</h2>
             <p id="embedHow">Start, then press play on the video. It finishes by itself when the video goes quiet.</p>
@@ -1282,7 +1288,10 @@ async function ytShow(id) {
       width: 480, height: 270, videoId: id, playerVars: { playsinline: 1, rel: 0, origin: location.origin },
       events: {
         onReady: ready,
-        onStateChange: e => { if (e.data === 0 && cap && cap.yt) stopCapture(); },            // 0 = the video ended: finish by itself
+        onStateChange: e => {
+          if (e.data === 0 && cap && cap.yt) stopCapture();                                  // 0 = the video ended: finish by itself
+          if (e.data === 1 && !(cap && cap.yt)) { try { ytp.pauseVideo(); } catch (err) {} } // 1 = playing: only the app may start it, after Start
+        },
         onAutoplayBlocked: () => say("Chrome stopped the video from starting by itself. Press play on it.", true),
         onError: e => {
           say(e.data === 101 || e.data === 150 ? "The video's owner doesn't allow it to be played outside YouTube." : "YouTube couldn't play this video here (error " + e.data + ").", true);
@@ -1304,8 +1313,16 @@ function showOwn(emb, site) {
   $("playHere").hidden = !emb;                    // only sites with an embeddable player offer "play it here"
   $("embedBox").scrollIntoView({ behavior: "auto", block: "center" });     // put the card where you are looking, not off-screen above
 }
+// The player is locked until you press Start: covered, unclickable and unfocusable. For YouTube it stays locked while listening (the app plays it);
+// for Instagram it unlocks after Start, because you have to press play yourself.
+const lockMsg = () => (ytMode ? "Press Start first. I'll play it for you." : "Press Start first, then press play on the video.");
+function lockPlayer(msg) {
+  for (const el of [$("ytWrap"), $("embedFrame")]) el.inert = true;
+  $("shield").textContent = msg || lockMsg(); $("shield").hidden = false;
+}
+function unlockPlayer() { for (const el of [$("ytWrap"), $("embedFrame")]) el.inert = false; $("shield").hidden = true; }
 async function showEmbed(emb) {
-  ytMode = !!emb.yt;
+  ytMode = !!emb.yt; lockPlayer();
   const f = $("embedFrame");
   $("embedBox").hidden = false; $("ownBox").hidden = true; $("embedPlay").hidden = false;
   $("ytWrap").hidden = !ytMode; f.hidden = ytMode;
@@ -1318,7 +1335,7 @@ async function showEmbed(emb) {
   $("embedBox").scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 function closeEmbed() {
-  $("embedFrame").src = "about:blank"; $("embedBox").hidden = true; pendingEmb = null;
+  $("embedFrame").src = "about:blank"; $("embedBox").hidden = true; pendingEmb = null; lockPlayer();
   if (ytp) try { ytp.stopVideo(); } catch (e) {}
 }
 $("embedClose").onclick = closeEmbed; $("ownClose").onclick = closeEmbed;
@@ -1353,11 +1370,12 @@ async function captureAudio(thisTab, player) {      // player: YouTube's player 
   if (!tracks.length) { stream.getTracks().forEach(t => t.stop()); say("No sound was shared. Pick the tab and tick “Also share tab audio”.", true); return; }
   const chunks = [], mr = new MediaRecorder(new MediaStream(tracks)), t0 = Date.now();
   cap = { mr, stream, timer: null, tick: null, yt: !!player, player };
+  if (player) lockPlayer("Listening… I'm playing this for you."); else unlockPlayer();
   mr.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
   mr.onstop = async () => {
     clearInterval(cap.tick); clearTimeout(cap.timer); stream.getTracks().forEach(t => t.stop());
     if (cap.player) try { cap.player.pauseVideo(); } catch (e) {}
-    cap = null;
+    cap = null; lockPlayer();                       // done listening: locked again until the next Start
     if (!chunks.length) { dockHide(); say("Nothing was captured. I heard silence: press play on the video and keep Share tab audio on.", true); return; }
     await audioToNotes(new File(chunks, "Captured audio.webm", { type: mr.mimeType || "audio/webm" }));
   };
