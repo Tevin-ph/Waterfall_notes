@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="darkreader-lock">
 <title>Waterfall Notes</title>
 <style>
   :root { --bg:#000; --panel:#0c0c0e; --card:#111114; --ink:#f4f4f5; --dim:#8a8a93; --line:#1f1f24; --line2:#2c2c33; --hover:#1a1a1e; --accent:#ffe45e; --rec:#e5484d; --right:#7cc4ff; --left:#ffa970; }
@@ -155,12 +157,18 @@
   .stepper span { min-width:74px; text-align:center; font-variant-numeric:tabular-nums; color:var(--ink); }
   .lbl { color:var(--dim); font-size:12px; }
   /* note editor */
+  #exportWrap { position:relative; }
+  #exportPop { position:absolute; right:0; top:calc(100% + 8px); width:320px; max-width:calc(100vw - 32px); background:var(--card); border:1px solid var(--line2); border-radius:14px; padding:6px; box-shadow:0 18px 50px rgba(0,0,0,.65); z-index:45; display:flex; flex-direction:column; }
+  #exportPop[hidden] { display:none; }
+  #exportPop button { display:flex; flex-direction:column; align-items:flex-start; gap:3px; text-align:left; border:0; border-radius:10px; padding:10px 12px; background:none; }
+  #exportPop button:hover { background:var(--hover); }
+  #exportPop button b { font-weight:500; } #exportPop button span { color:var(--dim); font-size:12.5px; line-height:1.4; }
   #v-sheet.show { display:flex; flex-direction:column; }
   #shHead { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; padding:18px 24px 6px; }
   #shTitle { font-size:22px; font-weight:600; }
   .shBtns { display:flex; align-items:center; gap:8px; flex-wrap:wrap; } #shPage { color:var(--dim); min-width:90px; text-align:center; font-variant-numeric:tabular-nums; }
   #shNote { color:var(--dim); font-size:12.5px; line-height:1.45; padding:0 24px 10px; max-width:760px; }
-  #shPaper { flex:1; overflow:auto; margin:0 24px 24px; background:#fff; color:#111; border-radius:12px; padding:14px; min-height:260px; }
+  #shPaper { flex:1; overflow:auto; margin:0 24px 24px; background:#fff; color:#111; color-scheme:light; forced-color-adjust:none; border-radius:12px; padding:14px; min-height:260px; }
   #shMsg { color:#555; padding:24px; text-align:center; } #shMsg:empty { display:none; }
   @media print { body * { visibility:hidden; } #shPaper, #shPaper * { visibility:visible; } #shPaper { position:fixed; inset:0; margin:0; border-radius:0; overflow:visible; } }
   #v-edit.show { display:flex; flex-direction:column; overflow:hidden; }
@@ -316,7 +324,7 @@
         <div class="shBtns"><button id="shPrev" aria-label="Previous page">&larr; Earlier</button><span id="shPage"></span><button id="shNext" aria-label="Next page">Later &rarr;</button>
           <button id="shXml" title="Download the music as a MusicXML file (opens in MuseScore, Finale, Sibelius ...)">Download MusicXML</button><button id="shPrint" title="Print this page of the music">Print</button></div>
       </div>
-      <div id="shNote">Written from the notes, so it is an approximation: rhythm is rounded to sixteenths using the song's tempo (set it in Settings with Auto or Tap first), each hand is one line, the key is guessed, and notes held under moving ones are shown short.</div>
+      <div id="shNote">Written from the notes, so it is an approximation: rhythm is rounded to 32nd notes using the song's tempo (set it in Settings with Auto or Tap if it looks off), each hand is one line, the key is guessed, and notes held under moving ones are shown short. <span id="shTempo"></span></div>
       <div id="shPaper"><div id="shHost"></div><div id="shMsg"></div></div>
     </section>
 
@@ -370,7 +378,12 @@
         <button id="rec" title="Record a new layer while the song plays">&#9679; Record</button>
         <button id="saveLib" title="Save to your library">Save</button>
         <button id="sheetBtn" title="See this song as written music">Sheet music</button>
-        <button id="saveMidi" title="Download as a .mid file">Save MIDI</button>
+        <div class="menuWrap" id="exportWrap"><button id="exportBtn" aria-haspopup="true" aria-expanded="false" title="Save this song as a video, an audio file or a MIDI file">Export</button>
+          <div id="exportPop" hidden>
+            <button id="exVideo"><b>Video</b><span>The falling notes with the piano playing (.mp4 where your browser can make one, otherwise .webm). Takes as long as the song and the tab must stay open.</span></button>
+            <button id="exAudio"><b>Audio (.wav)</b><span>The piano playing the song, as a sound file. Quick.</span></button>
+            <button id="saveMidi"><b>MIDI (.mid)</b><span>Just the notes, to open in a music program.</span></button>
+          </div></div>
       </div>
       <div id="layers" hidden></div>
       <div id="stage"><canvas id="cv"></canvas><video id="pVideo" playsinline preload="auto" hidden></video><div id="countIn" aria-hidden="true"></div><div id="hint">Open a song from Library or Create</div></div>
@@ -603,7 +616,36 @@ let ac = null;
 function ensureAudio() { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === "suspended") ac.resume(); return ac; }
 const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
 
+// ---- piano sound: a recorded grand piano ----
+// Salamander Grand Piano by Alexander Holm (CC BY 3.0, 30 samples in vendor/piano, credit in vendor/piano/LICENSE.txt). Each note plays the nearest recorded note,
+// re-pitched by at most a couple of semitones. Until the samples have loaded (about 2 MB) the simple synth below is used.
+const PIANO_FILES = [["A0",21],["C1",24],["Ds1",27],["Fs1",30],["A1",33],["C2",36],["Ds2",39],["Fs2",42],["A2",45],["C3",48],["Ds3",51],["Fs3",54],["A3",57],["C4",60],["Ds4",63],["Fs4",66],["A4",69],["C5",72],["Ds5",75],["Fs5",78],["A5",81],["C6",84],["Ds6",87],["Fs6",90],["A6",93],["C7",96],["Ds7",99],["Fs7",102],["A7",105],["C8",108]];
+const piano = { buffers: [], ready: false, loading: false, bus: null };
+async function loadPiano() {
+  if (piano.ready || piano.loading) return; piano.loading = true;
+  try {
+    const ctx = ensureAudio();
+    piano.buffers = (await Promise.all(PIANO_FILES.map(async ([n, m]) => ({ m, buf: await ctx.decodeAudioData(await (await fetch("vendor/piano/" + n + ".mp3")).arrayBuffer()) })))).sort((a, b) => a.m - b.m);
+    piano.ready = true;
+  } catch (e) { console.warn("piano samples unavailable, using the synth:", e); }
+  piano.loading = false;
+}
+// One note on any audio context (the live one, or an offline one when exporting). dest: where it goes.
+function playSample(ctx, dest, m, vel, when, len) {
+  let best = piano.buffers[0]; for (const b of piano.buffers) if (Math.abs(b.m - m) < Math.abs(best.m - m)) best = b;
+  const src = ctx.createBufferSource(), g = ctx.createGain(), peak = 0.1 + 0.8 * Math.pow(Math.max(0.05, Math.min(1, vel)), 1.15);
+  src.buffer = best.buf; src.playbackRate.value = Math.pow(2, (m - best.m) / 12);
+  const end = when + Math.max(len, 0.1);
+  g.gain.setValueAtTime(peak, when); g.gain.setValueAtTime(peak, end); g.gain.setTargetAtTime(0, end, 0.09);        // the damper comes down when the note ends
+  src.connect(g); g.connect(dest); src.start(when); src.stop(end + 1.2);
+}
+function pianoBus(ctx) {        // a gentle limiter so a big chord never clips
+  const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -14; comp.knee.value = 12; comp.ratio.value = 6; comp.attack.value = 0.003; comp.release.value = 0.2;
+  const out = ctx.createGain(); out.gain.value = 0.9; comp.connect(out); out.connect(ctx.destination); if (ctx === ac) piano.out = out; return comp;
+}
+
 function playNote(m, vel, when, len) {
+  if (piano.ready) { if (!piano.bus || piano.bus.context !== ac) piano.bus = pianoBus(ac); return playSample(ac, piano.bus, m, vel, when, len); }
   const f = mtof(m), g = ac.createGain(), out = ac.destination;
   const peak = 0.05 + 0.22 * vel * (m < 60 ? 1 : 0.8);
   const rel = Math.max(len, 0.12);
@@ -702,6 +744,7 @@ function scheduler() {
   }
 }
 setInterval(scheduler, 25);
+setTimeout(() => { loadPiano(); }, 800);        // fetch the piano samples in the background
 
 // ---------- Rendering ----------
 const cv = document.getElementById("cv"), cx = cv.getContext("2d");
@@ -1292,17 +1335,28 @@ async function renderLibrary() {
 const SHEET_BARS = 16;                      // bars per page: drawing a whole piece at once is slow
 let sheet = { osmd: null, score: null, page: 0, key: "" };
 function sheetNotes() { return song.base.concat(...song.layers.map(L => L.notes.map(n => ({ ...n, h: L.hand === "auto" ? handOfAuto(n.m) : +L.hand })))); }
+// The tempo the notation is written at: the song's own when it was set (Settings, Tap, Auto), but a song still at the default 100 BPM gets its tempo worked
+// out from the notes when they are steady enough (tempo.js), since a wrong tempo makes the notation messy.
+async function sheetScore(notes) {
+  let bpm = song.bpm, off = song.off, how = "from the song's tempo setting";
+  if (Math.abs(song.bpm - 100) < 0.01) {
+    try { const r = (await import("./tempo.js")).estimateTempo(notes); if (r && r.fit >= 0.2) { bpm = r.bpm; off = r.off; how = "worked out from the notes"; } } catch (e) {}
+  }
+  const beats = S.beats === 2 || S.beats === 3 || S.beats === 4 ? S.beats : 4;
+  const score = (await import("./musicxml.js")).buildScore(notes, { bpm, off, beats, title: song.name });
+  return { score, bpm, how };
+}
 async function showSheet(page) {
   const msg = $("shMsg"), host = $("shHost"), notes = sheetNotes();
   if (!notes.length) { host.innerHTML = ""; msg.textContent = "Open a song from Library or Create first, then come back here."; $("shPage").textContent = ""; return; }
   const key = [song.id, notes.length, song.bpm, song.off, S.beats].join("|");
   if (key !== sheet.key) {                      // rebuild only when the song or its tempo changed
-    sheet.score = (await import("./musicxml.js")).buildScore(notes, { bpm: song.bpm, off: song.off, beats: S.beats === 3 || S.beats === 2 || S.beats === 4 ? S.beats : 4, title: song.name }); sheet.key = key;
+    const r = await sheetScore(notes); sheet.score = r.score; sheet.key = key; sheet.tempoText = r.score ? "Written at " + Math.round(r.bpm) + " BPM, " + r.how + "." : "";
   }
   if (!sheet.score) { host.innerHTML = ""; msg.textContent = "No notes to write down."; return; }
   const pages = Math.ceil(sheet.score.measures / SHEET_BARS); page = Math.max(0, Math.min(pages - 1, page)); sheet.page = page;
   $("shTitle").textContent = song.name + " · sheet music"; $("shPage").textContent = "Bars " + (page * SHEET_BARS + 1) + "-" + Math.min(sheet.score.measures, (page + 1) * SHEET_BARS) + " of " + sheet.score.measures;
-  $("shPrev").disabled = page === 0; $("shNext").disabled = page >= pages - 1; msg.textContent = "Drawing…";
+  $("shTempo").textContent = sheet.tempoText || ""; $("shPrev").disabled = page === 0; $("shNext").disabled = page >= pages - 1; msg.textContent = "Drawing…";
   try {
     if (!sheet.osmd) { const { OpenSheetMusicDisplay } = await import("./vendor/osmd.js"); sheet.osmd = new OpenSheetMusicDisplay(host, { autoResize: true, backend: "svg", drawTitle: false, drawPartNames: false, autoBeam: true, drawingParameters: "default" }); }
     await sheet.osmd.load(sheet.score.xml(page * SHEET_BARS, (page + 1) * SHEET_BARS)); sheet.osmd.render(); msg.textContent = "";
@@ -1312,8 +1366,71 @@ $("shPrev").onclick = () => showSheet(sheet.page - 1); $("shNext").onclick = () 
 $("sheetBtn").onclick = () => go("sheet"); $("shPrint").onclick = () => window.print();
 $("shXml").onclick = async () => {
   const notes = sheetNotes(); if (!notes.length) return;
-  const sc = (await import("./musicxml.js")).buildScore(notes, { bpm: song.bpm, off: song.off, beats: S.beats === 3 || S.beats === 2 || S.beats === 4 ? S.beats : 4, title: song.name }); if (!sc) return;
+  const { score: sc } = await sheetScore(notes); if (!sc) return;
   const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([sc.xml()], { type: "application/vnd.recordare.musicxml+xml" })); a.download = (song.name || "song").replace(/[^\w.-]+/g, "_") + ".musicxml"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+};
+
+// ---------- Export: video, audio, MIDI ----------
+const closeExport = () => { $("exportPop").hidden = true; $("exportBtn").setAttribute("aria-expanded", "false"); };
+$("exportBtn").onclick = e => { e.stopPropagation(); const open = $("exportPop").hidden; $("exportPop").hidden = !open; $("exportBtn").setAttribute("aria-expanded", String(open)); };
+document.addEventListener("click", e => { if (!e.target.closest("#exportWrap")) closeExport(); });
+const fileName = ext => (song.name || "waterfall").replace(/[^\w\- ]+/g, "").trim() + "." + ext;
+function download(blob, name) { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); }
+function wavFromBuffer(buf) {              // 16-bit PCM wav of an AudioBuffer
+  const ch = buf.numberOfChannels, n = buf.length, out = new DataView(new ArrayBuffer(44 + n * ch * 2)), w = (o, s) => [...s].forEach((c, i) => out.setUint8(o + i, c.charCodeAt(0)));
+  w(0, "RIFF"); out.setUint32(4, 36 + n * ch * 2, true); w(8, "WAVEfmt "); out.setUint32(16, 16, true); out.setUint16(20, 1, true); out.setUint16(22, ch, true);
+  out.setUint32(24, buf.sampleRate, true); out.setUint32(28, buf.sampleRate * ch * 2, true); out.setUint16(32, ch * 2, true); out.setUint16(34, 16, true); w(36, "data"); out.setUint32(40, n * ch * 2, true);
+  const data = [...Array(ch).keys()].map(c => buf.getChannelData(c)); let o = 44;
+  for (let i = 0; i < n; i++) for (let c = 0; c < ch; c++) { out.setInt16(o, Math.max(-1, Math.min(1, data[c][i])) * 32767, true); o += 2; }
+  return new Blob([out.buffer], { type: "audio/wav" });
+}
+// The song played on the piano, rendered faster than real time into a sound file (transposed as you hear it).
+$("exAudio").onclick = async () => {
+  closeExport(); if (!song.notes.length) return;
+  try {
+    dock("Making the audio file…", null);
+    await loadPiano(); if (!piano.ready) throw new Error("the piano sounds couldn't be loaded");
+    const sr = 44100, off = new OfflineAudioContext(2, Math.ceil((song.dur + 3) * sr), sr), bus = pianoBus(off);
+    for (const n of song.notes) { const m = n.m + S.transpose; if (m >= 21 && m <= 108) playSample(off, bus, m, n.v, n.t, n.d); }
+    download(wavFromBuffer(await off.startRendering()), fileName("wav")); dock("Audio saved", 1); setTimeout(dockHide, 2000);
+  } catch (e) { dockHide(); alert("Couldn't make the audio file: " + (e.message || e)); }
+};
+// The falling-notes picture and the piano, recorded while the song plays once at normal speed (so it takes as long as the song).
+$("exVideo").onclick = async () => {
+  closeExport(); if (!song.notes.length) return;
+  if (!gl3d) { alert("The 3D view isn't available in this browser, so there is nothing to record."); return; }
+  if (!window.MediaRecorder) { alert("This browser can't record video. Use Chrome or Edge."); return; }
+  const types = ["video/mp4;codecs=avc1.640028,mp4a.40.2", "video/mp4;codecs=avc1,mp4a.40.2", "video/mp4", "video/webm;codecs=vp9,opus", "video/webm"], type = types.find(t => MediaRecorder.isTypeSupported(t));
+  if (!type) { alert("This browser can't record video. Use Chrome or Edge."); return; }
+  const canvas = [...$("stage").querySelectorAll("canvas")].find(c => c.id !== "cv");
+  const keep = { synthUser: S.synthUser, speed: S.speed, countin: S.countin, metro: S.metro, loopOn: S.loopOn };
+  let rec = null, finished = false;
+  try {
+    dock("Getting the piano ready…", null); await loadPiano(); if (!piano.ready) throw new Error("the piano sounds couldn't be loaded");
+    ensureAudio(); if (!piano.bus || piano.bus.context !== ac) piano.bus = pianoBus(ac);
+    const dest = ac.createMediaStreamDestination(); piano.out.connect(dest); piano.out.disconnect(ac.destination);          // record it, and keep the room quiet while it records
+    pause(); S.synthUser = true; S.countin = false; S.metro = false; S.loopOn = false; setSpeed(1); syncSound(); seek(0);
+    const stream = new MediaStream([...canvas.captureStream(30).getVideoTracks(), ...dest.stream.getAudioTracks()]), chunks = [];
+    rec = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: 8e6, audioBitsPerSecond: 192e3 }); rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+    const stopped = new Promise(r => { rec.onstop = r; });
+    rec.start(1000); play();
+    while (true) {
+      await new Promise(r => setTimeout(r, 250)); const p = pos();
+      dock("Recording the video… " + fmt(p) + " / " + fmt(song.dur) + " (keep this tab in front)", Math.min(1, p / Math.max(1, song.dur)));
+      if (!S.playing) { finished = p >= song.dur - 0.5; break; }
+    }
+    if (finished) await new Promise(r => setTimeout(r, 1500));            // let the last notes ring out
+    rec.stop(); await stopped;
+    piano.out.disconnect(dest); piano.out.connect(ac.destination);
+    if (finished) { download(new Blob(chunks, { type: type.split(";")[0] }), fileName(type.startsWith("video/mp4") ? "mp4" : "webm")); dock("Video saved", 1); setTimeout(dockHide, 2500); }
+    else { dockHide(); }                                                  // paused part-way: nothing is saved
+  } catch (e) {
+    try { if (rec && rec.state !== "inactive") rec.stop(); } catch (x) {}
+    try { piano.out.connect(ac.destination); } catch (x) {}
+    dockHide(); alert("Couldn't make the video: " + (e.message || e));
+  } finally {
+    pause(); S.synthUser = keep.synthUser; S.countin = keep.countin; S.metro = keep.metro; S.loopOn = keep.loopOn; setSpeed(keep.speed); syncSound(); syncUI();
+  }
 };
 
 // ---------- Pages ----------
@@ -1782,7 +1899,7 @@ import("./editor.js").then(m => { editorUI = m.initEditor(EDITOR_API); if (locat
 import("./vendor/icons.js").then(m => {
   ICONS = m.ICONS;
   $("restart").innerHTML = ico("rotate-ccw"); $("settingsBtn").innerHTML = ico("sliders-horizontal") + "Settings"; $("midiBtn").innerHTML = ico("keyboard") + "Keyboard";
-  $("saveMidi").innerHTML = ico("download") + "Export .mid"; $("saveLib").dataset.label = "Save"; $("saveLib").innerHTML = ico("save") + "Save";
+  $("exportBtn").innerHTML = ico("download") + "Export"; $("saveLib").dataset.label = "Save"; $("saveLib").innerHTML = ico("save") + "Save";
   syncUI();
 }).catch(() => {});
 import("./scene3d.js").then(m => { gl3d = m.createScene($("stage")); gl3d.setColors(HANDCSS[0], HANDCSS[1]); gl3d.setSkin(skinTone); gl3d.setGlow(glowLevel); cv.style.display = "none"; resize(); })
