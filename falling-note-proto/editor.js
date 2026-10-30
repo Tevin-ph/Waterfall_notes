@@ -188,6 +188,19 @@ export function initEditor(api) {
   $("eDown").onclick = () => shiftPitch(-1); $("eUp").onclick = () => shiftPitch(1);
   $("eOctDown").onclick = () => shiftPitch(-12); $("eOctUp").onclick = () => shiftPitch(12);
   $("eClean").onclick = () => edit(() => { for (const { list } of sources()) for (let i = list.length - 1; i >= 0; i--) if (list[i].d < 0.05) list.splice(i, 1); });
+  // Notes heard from audio include false ones: tiny, very quiet, or quiet low "bass" the pianist never played. These rules are guesses tuned on
+  // test recordings (gentle removed ~9% of one, strong ~56% of a very cluttered one); the result is always one Undo away.
+  const TIDY = {
+    gentle: n => n.d < 0.06 || (n.v < 0.25 && n.d < 0.1),
+    medium: n => n.d < 0.08 || (n.v < 0.3 && n.d < 0.15) || (n.m < 45 && n.v < 0.35),
+    strong: n => n.d < 0.12 || (n.v < 0.35 && n.d < 0.3) || (n.m < 48 && n.v < 0.45),
+  };
+  $("eTidy").onchange = e => {
+    const rule = TIDY[e.target.value]; e.target.value = ""; if (!rule) return;
+    let gone = 0;
+    edit(() => { for (const { list } of sources()) for (let i = list.length - 1; i >= 0; i--) if (rule(list[i])) { list.splice(i, 1); gone++; } sel = new Set(); });
+    updateInfo(); $("eInfo").textContent += "  ·  removed " + gone + " likely false notes (Undo to bring them back)";
+  };
   $("eZoomIn").onclick = () => { pps = Math.min(600, pps * 1.3); clampScroll(); }; $("eZoomOut").onclick = () => { pps = Math.max(30, pps / 1.3); clampScroll(); };
   $("eSave").onclick = async () => { const b = $("eSave"); const ok = await api.save(); b.textContent = ok ? "Saved ✓" : "Nothing to save"; setTimeout(() => { b.textContent = "Save"; }, 1500); };
   $("ePlay").onclick = () => api.togglePlay();

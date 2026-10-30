@@ -56,14 +56,14 @@ export function createScene(stage) {
   floor.rotation.x = -Math.PI / 2; floor.position.set(0, -0.02, -90); scene.add(floor);
   const lineMat = (o, c = 0xffffff) => new T.MeshBasicMaterial({ color: c, transparent: true, opacity: o, depthWrite: false });
   const guideLen = 5 * ZPS + 24;
-  const octMat = lineMat(0.07);
+  const octMat = lineMat(0.13);
   for (let m = FIRST; m <= LAST; m++) {          // one faint guide line at every C (an octave boundary); more lines just shimmer in the distance
     if (m % 12 !== 0) continue;
     const l = new T.Mesh(new T.BoxGeometry(0.05, 0.006, guideLen), octMat);
     l.position.set(keys[m].x - 0.5, 0.003, -guideLen / 2); scene.add(l);
   }
   const hit = new T.Mesh(new T.BoxGeometry(52.6, 0.07, 0.12), new T.MeshBasicMaterial({ color: 0xffffff })); hit.position.set(0, 0.04, 0); scene.add(hit);
-  const beatPool = [], beatBar = lineMat(0.1), beatMinor = lineMat(0.035), beatGeo = new T.BoxGeometry(52, 0.02, 0.06);
+  const beatPool = [], beatBar = lineMat(0.2), beatMinor = lineMat(0.08), beatGeo = new T.BoxGeometry(52, 0.02, 0.06);
   for (let i = 0; i < 24; i++) { const b = new T.Mesh(beatGeo, beatMinor); b.visible = false; scene.add(b); beatPool.push(b); }
   const loopMat = new T.MeshBasicMaterial({ color: 0x6ea8ff });
   const loopMarks = [0, 1].map(() => { const b = new T.Mesh(new T.BoxGeometry(52, 0.05, 0.12), loopMat); b.visible = false; scene.add(b); return b; });
@@ -226,7 +226,6 @@ export function createScene(stage) {
     const now = performance.now(), dt = Math.min(0.05, (now - last) / 1000); last = now;
     const want = s.view === "tilt" ? "tilt" : "flat";
     if (want !== vmode) { vmode = want; placeCamera(); }
-    cabinet.visible = vmode === "tilt";                              // straight down, the case's top would be a grey slab above the keys
     zps = vmode === "flat" ? laneDepth / lookAhead : ZPS;           // straight down: fit the look-ahead into the screen height
     if (s.range) setRange(s.range[0], s.range[1]);
     if (Math.abs(view.tcx - view.cx) > 0.01 || Math.abs(view.thalf - view.half) > 0.01) {   // ease toward the new range
