@@ -1,7 +1,7 @@
 // Only the three.js pieces the scene uses, so the bundle stays small.
 export {
   WebGLRenderer, Scene, PerspectiveCamera, Color, Fog, Group, Mesh, Sprite,
-  BoxGeometry, PlaneGeometry, CylinderGeometry, SphereGeometry, Vector3, MeshStandardMaterial, MeshPhysicalMaterial, MeshBasicMaterial, SpriteMaterial,
+  BoxGeometry, PlaneGeometry, CylinderGeometry, SphereGeometry, CapsuleGeometry, ExtrudeGeometry, Shape, Vector3, MeshStandardMaterial, MeshPhysicalMaterial, MeshBasicMaterial, SpriteMaterial,
   CanvasTexture, AmbientLight, DirectionalLight, PointLight, Vector2, AdditiveBlending, PMREMGenerator,
   ACESFilmicToneMapping, SRGBColorSpace, HalfFloatType, DoubleSide,
 } from "three";

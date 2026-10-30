@@ -422,6 +422,7 @@
               <div class="srow"><span>Right hand</span><input id="colR" type="color" value="#4db5ff" aria-label="Right hand color"></div>
               <div class="srow"><span>Left hand</span><input id="colL" type="color" value="#ff8f4d" aria-label="Left hand color"></div>
               <label class="srow"><span>Color set</span><select id="colSet"><option value="">Custom</option><option value="#4db5ff,#ff8f4d">Blue and orange</option><option value="#7cf29c,#c58bff">Green and purple</option><option value="#ff5c8a,#ffd24d">Pink and gold</option><option value="#4dffe0,#ff6b4d">Aqua and coral</option><option value="#f2f2f2,#8a8a93">Light and grey</option></select></label>
+              <label class="srow"><span>Hands' skin</span><select id="skinSel"><option value="#f1cdb0">Light</option><option value="#e0b08c" selected>Medium</option><option value="#b98660">Tan</option><option value="#8a5a3c">Brown</option><option value="#5b3a27">Dark</option></select></label>
               <div class="sgroup">Playing</div>
               <label class="srow"><span>Play along with</span><select id="hands"><option value="both">Both hands</option><option value="right">Right hand</option><option value="left">Left hand</option></select></label>
               <label class="srow"><span>Camera</span><select id="viewMode"><option value="flat">Straight down (notes fall vertically)</option><option value="tilt">3D tilt</option></select></label>
@@ -1682,6 +1683,15 @@ function setColors(r, l, keep) {
   if (!keep) { try { localStorage.setItem("wn.colors", r + "," + l); } catch (e) {} }
 }
 const HANDCSS = ["#4db5ff", "#ff8f4d"];     // shared with the note editor so its roll matches
+
+// ---- the hands' skin tone (remembered) ----
+let skinTone = "#e0b08c";
+function setSkinTone(hex, keep) {
+  skinTone = hex; $("skinSel").value = hex; if (gl3d && gl3d.setSkin) gl3d.setSkin(hex);
+  if (!keep) { try { localStorage.setItem("wn.skin", hex); } catch (e) {} }
+}
+$("skinSel").onchange = e => setSkinTone(e.target.value);
+try { const s = localStorage.getItem("wn.skin"); if (s && /^#[0-9a-f]{6}$/i.test(s) && [...$("skinSel").options].some(o => o.value === s)) { skinTone = s; $("skinSel").value = s; } } catch (e) {}
 $("colR").oninput = e => setColors(e.target.value, HANDCSS[1]);
 $("colL").oninput = e => setColors(HANDCSS[0], e.target.value);
 $("colSet").onchange = e => { if (e.target.value) { const [r, l] = e.target.value.split(","); setColors(r, l); } };
@@ -1766,7 +1776,7 @@ import("./vendor/icons.js").then(m => {
   $("saveMidi").innerHTML = ico("download") + "Export .mid"; $("saveLib").dataset.label = "Save"; $("saveLib").innerHTML = ico("save") + "Save";
   syncUI();
 }).catch(() => {});
-import("./scene3d.js").then(m => { gl3d = m.createScene($("stage")); gl3d.setColors(HANDCSS[0], HANDCSS[1]); cv.style.display = "none"; resize(); })
+import("./scene3d.js").then(m => { gl3d = m.createScene($("stage")); gl3d.setColors(HANDCSS[0], HANDCSS[1]); gl3d.setSkin(skinTone); cv.style.display = "none"; resize(); })
   .catch(e => console.warn("3D scene unavailable, using the 2D view:", e));
 </script>
 </body>
