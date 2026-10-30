@@ -192,13 +192,8 @@ export function initEditor(api) {
   $("eDown").onclick = () => shiftPitch(-1); $("eUp").onclick = () => shiftPitch(1);
   $("eOctDown").onclick = () => shiftPitch(-12); $("eOctUp").onclick = () => shiftPitch(12);
   $("eClean").onclick = () => edit(() => { for (const { list } of sources()) for (let i = list.length - 1; i >= 0; i--) if (list[i].d < 0.05) list.splice(i, 1); });
-  // Notes heard from audio include false ones: tiny, very quiet, or quiet low "bass" the pianist never played. These rules are guesses tuned on
-  // test recordings (gentle removed ~9% of one, strong ~56% of a very cluttered one); the result is always one Undo away.
-  const TIDY = {
-    gentle: n => n.d < 0.06 || (n.v < 0.25 && n.d < 0.1),
-    medium: n => n.d < 0.08 || (n.v < 0.3 && n.d < 0.15) || (n.m < 45 && n.v < 0.35),
-    strong: n => n.d < 0.12 || (n.v < 0.35 && n.d < 0.3) || (n.m < 48 && n.v < 0.45),
-  };
+  // Tidy bars. The earlier Clean up levels (remove blips / quiet / quiet low notes) were removed: measured on phone-style recordings with a
+  // known answer they deleted several real notes for every false one (Gentle: 10% of real notes lost to remove 18% of the false ones).
   $("eTidy").onchange = e => {
     if (e.target.value === "trim") {      // for songs with no pedal information: show long bars as a short held key (Settings > Pedal brings the full length back). No note is removed or joined.
       e.target.value = ""; let cut = 0;
@@ -216,10 +211,7 @@ export function initEditor(api) {
       });
       updateInfo(); $("eInfo").textContent += "  ·  " + cut + " long bars now show only the part where the key is held (Undo to bring them back)"; return;
     }
-    const rule = TIDY[e.target.value]; e.target.value = ""; if (!rule) return;
-    let gone = 0;
-    edit(() => { for (const { list } of sources()) for (let i = list.length - 1; i >= 0; i--) if (rule(list[i])) { list.splice(i, 1); gone++; } sel = new Set(); });
-    updateInfo(); $("eInfo").textContent += "  ·  removed " + gone + " likely false notes (Undo to bring them back)";
+    e.target.value = "";
   };
   // Snap to beat: starts move to the nearest 1/4, 1/8, 1/16 or 1/32 of a beat grid built from the song's tempo (set it in Settings, or
   // tap it). Lengths round to the grid too, never shorter than one step. Selected notes only, or all when nothing is selected.

@@ -12,3 +12,9 @@ How well does the piano helper guess when a finger let go of a key? The truth co
 Result for the shipped rule (4290 matched notes, three classical pieces): 88.5% of notes land within 150 ms of the real release,
 against 49.2% for the model's own note length; the average bar goes from 0.41 s to 0.16 s. Real holds over 0.8 s are about 1% of notes
 and the rule gets almost none of them right. Three classical pieces with pedal are a small sample, so casual or pop playing may differ.
+
+## Other experiments (see ../../repo-research.md for the results)
+* `learn_hold.py`: learned key-hold models against the rule (leave-one-piece-out). The rule won.
+* `degrade.py`, `f1_degraded.py`, `noisiness.py`: make phone-style copies of the test pieces, then score precision/recall/F1 of the transcription on clean, degraded and denoised audio, and the noisiness gauge the helper uses.
+* `ghost.py`, `ghost2.py`: how many false notes appear on degraded audio and whether any rule or classifier removes more false notes than real ones (none did).
+* `tempo_test.mjs`, `tempo_steadiness.mjs` (run with node): tempo detector on made-up songs with a known tempo; fit score for steady, loose and random timing.

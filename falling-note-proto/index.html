@@ -331,10 +331,10 @@
           <button id="eOctDown" title="Down an octave (Shift + Arrow down)">&minus;8va</button><button id="eOctUp" title="Up an octave (Shift + Arrow up)">+8va</button>
         </div>
         <div class="eGrp">
-          <button id="eClean" title="Remove very short notes (under 50 ms)">Remove blips</button>
+          <button id="eClean" title="Remove notes under 50 ms. Careful: fast music has real notes this short (in a test, about 5 of 6 removed notes were real). Undo brings them back.">Remove blips</button>
           <select id="eSnap" title="Move notes onto the beat grid (selected notes, or all if none selected)"><option value="">Snap to beat…</option><option value="4">1/4</option><option value="8">1/8</option><option value="16">1/16</option><option value="32">1/32</option></select>
           <select id="eTempo" title="Make the whole song faster or slower for good (Undo brings it back)"><option value="">Change tempo…</option><option value="0.5">Half speed</option><option value="0.75">Slower (x0.75)</option><option value="1.25">Faster (x1.25)</option><option value="1.5">Faster (x1.5)</option><option value="2">Double speed</option></select>
-          <select id="eTidy" title="Remove likely false notes (very short, very quiet, quiet low bass). Undo brings them back."><option value="">Clean up…</option><option value="gentle">Gentle</option><option value="medium">Medium</option><option value="strong">Strong</option><option value="trim">Shorten long bars (pedal)</option></select>
+          <select id="eTidy" title="Show long bars as the part where the key is held (pedal). Undo brings them back."><option value="">Tidy bars…</option><option value="trim">Shorten long bars (pedal)</option></select>
           <button id="eZoomOut" aria-label="Zoom out">&minus;</button><button id="eZoomIn" aria-label="Zoom in">+</button>
           <button id="eSave" title="Save to your library">Save</button>
         </div>
@@ -387,7 +387,8 @@
               <label class="srow"><span>Note colors</span><select id="look"><option value="flat">By hand</option><option value="spectrum">By note</option></select></label>
               <div class="sgroup">Tempo and metronome</div>
               <label class="srow"><span>Speed</span><input id="speedRange" type="range" min="25" max="200" step="5" value="100" aria-label="Playback speed"><b id="speedVal">100%</b></label>
-              <div class="srow"><span>Song tempo</span><div class="stepper"><button id="bpmDown" aria-label="Slower tempo">&minus;</button><span id="bpmVal">100 BPM</span><button id="bpmUp" aria-label="Faster tempo">+</button></div><button id="tap" title="Tap along to the beat while it plays: sets the tempo and lines the beats up">Tap</button></div>
+              <div class="srow"><span>Song tempo</span><div class="stepper"><button id="bpmDown" aria-label="Slower tempo">&minus;</button><span id="bpmVal">100 BPM</span><button id="bpmUp" aria-label="Faster tempo">+</button></div><button id="bpmAuto" title="Work out the tempo and where the beats fall from the notes (a guess: check it against the music, or fix it with + / - or Tap)">Auto</button><button id="tap" title="Tap along to the beat while it plays: sets the tempo and lines the beats up">Tap</button></div>
+              <div id="tempoNote" class="srow" hidden style="padding-top:0;color:var(--dim);font-size:12px"><span id="tempoMsg"></span><span style="display:flex;gap:6px"><button id="bpmHalf" title="Half the tempo">&divide;2</button><button id="bpmDouble" title="Double the tempo">&times;2</button></span></div>
               <label class="srow"><span>Metronome volume</span><input id="metroVol" type="range" min="0" max="100" value="60" aria-label="Metronome volume"></label>
               <label class="srow"><span>Beats per bar</span><select id="beatsBar"><option value="2">2</option><option value="3">3</option><option value="4" selected>4</option><option value="6">6</option></select></label>
               <div class="sgroup">Colors</div>
@@ -1532,6 +1533,20 @@ function showBpm() { $("bpmVal").textContent = Math.round(song.bpm) + " BPM"; }
 function setBpm(b) { song.bpm = Math.max(30, Math.min(240, Math.round(b * 10) / 10)); showBpm(); resetSched(pos()); }
 $("bpmDown").onclick = () => setBpm(song.bpm - 1);
 $("bpmUp").onclick = () => setBpm(song.bpm + 1);
+$("bpmAuto").onclick = async () => {         // tempo.js: lay a beat grid over the note starts and keep the best fit
+  const note = $("tempoNote"); note.hidden = false;
+  try {
+    const r = (await import("./tempo.js")).estimateTempo(song.notes);
+    if (!r) { $("tempoMsg").textContent = "Not enough notes to tell the tempo."; return; }
+    // fit: how far above chance the notes sit on the beat grid. Steady playing scored 0.27-0.49 in tests, random timing 0.11-0.18; real expressive playing lower.
+    if (r.fit < 0.2) { $("tempoMsg").textContent = "The timing isn't steady enough to find the tempo from the notes. Tap along to the beat instead."; $("bpmHalf").hidden = $("bpmDouble").hidden = true; return; }
+    $("bpmHalf").hidden = $("bpmDouble").hidden = false;
+    song.bpm = r.bpm; song.off = r.off; showBpm(); resetSched(pos());
+    $("tempoMsg").textContent = "Found " + r.bpm + " BPM. It can land on half or double the tempo you feel:";
+  } catch (e) { $("tempoMsg").textContent = "Couldn't work out the tempo."; console.warn("tempo:", e); }
+};
+$("bpmHalf").onclick = () => setBpm(song.bpm / 2);
+$("bpmDouble").onclick = () => setBpm(song.bpm * 2);
 const taps = [];
 $("tap").onclick = () => {        // tap on the beat as the song plays: the gaps give the tempo, the last tap sets where the beats fall
   const now = performance.now(); if (taps.length && now - taps[taps.length - 1].at > 2000) taps.length = 0;
