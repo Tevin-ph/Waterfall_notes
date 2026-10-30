@@ -71,7 +71,7 @@ export function createScene(stage) {
   // ---------- notes: glossy rounded "glass" bars ----------
   const geoCache = new Map();
   function noteGeo(w, len) {                     // rounded box per (width, length); length is snapped to 0.1 so the cache stays small
-    const q = Math.max(0.4, Math.round(len * 10) / 10), key = w + "|" + q;
+    const q = Math.max(0.55, Math.round(len * 10) / 10), key = w + "|" + q;
     let g = geoCache.get(key);
     if (!g) { g = new T.RoundedBoxGeometry(w, 0.5, q, 2, Math.min(0.15, w * 0.3, q * 0.4)); geoCache.set(key, g); }
     return { g, q };
@@ -294,7 +294,7 @@ export function createScene(stage) {
       }
       const dim = !allowed(n), w = k.black ? 0.5 : 0.84;
       const near = -Math.max(0, n.t - p) * zps, far = -Math.min(Math.max(end, p) - p, lookAhead) * zps;
-      const { g, q } = noteGeo(w, Math.max(0.3, near - far)), zc = near - q / 2;
+      const { g, q } = noteGeo(w, Math.max(0.55, near - far)), zc = near - q / 2;
       const e = slot(used++), hex = spec ? spectrum[pm % 12] : HAND[n.h];
       e.tail.visible = false;
       if (split && pm_ === "ring") {
@@ -305,9 +305,9 @@ export function createScene(stage) {
       e.box.visible = true; e.box.geometry = g; e.box.material = noteMat(hex, dim, n.t <= p && !dim); e.box.position.set(k.x, 0.3, zc);
       e.stripe.visible = spec && !dim;
       if (e.stripe.visible) { e.stripe.material = noteMat(HAND[n.h], false); e.stripe.position.set(k.x, 0.3, zc); e.stripe.scale.set(w * 0.3, 0.54, q * 0.96); }
-      e.label.visible = letters && !dim && w > 0.4 && q >= 0.65;           // a letter on a tiny bar just spills over its neighbours
+      e.label.visible = letters && !dim && w > 0.4;                       // every note gets its letter; on a short bar it is made smaller to fit
       if (e.label.visible) {
-        const size = Math.min(0.85, w * 0.95);
+        const size = Math.min(0.85, w * 0.95, Math.max(0.3, q * 0.9));       // shrinks with the bar so a short note's letter stays on it
         e.label.material = labelMats[pm % 12]; e.label.scale.set(size, size, 1);
         e.label.position.set(k.x, 0.58, q > size * 1.4 ? near - size * 0.75 : zc);
       }
