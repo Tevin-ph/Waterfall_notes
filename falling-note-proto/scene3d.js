@@ -331,7 +331,7 @@ export function createScene(stage) {
     const off = s.beatOff || 0, bar = s.bar || 4, b0 = Math.ceil((p - off) / beatLen - 1e-6);
     beatPool.forEach((b, j) => {
       const beat = b0 + j, d = off + beat * beatLen - p;
-      b.visible = d >= 0 && d <= lookAhead;
+      b.visible = d >= 0 && d <= lookAhead && beat >= 0;
       if (b.visible) { b.position.set(0, 0, -d * zps); b.material = beat % bar === 0 ? beatBar : beatMinor; }
     });
     [loopA, loopB].forEach((t, j) => {

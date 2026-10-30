@@ -84,8 +84,13 @@ The old rule ("below middle C is left") is right for 84.4% of notes in 21 piano 
 
 | | C4 rule | best single split pitch per song (uses the answers) | hand model |
 |---|---|---|---|
-| pieces not used for tuning (10) | 83.7% | 92.4% | **93.9%** |
-| pieces used for tuning (11) | 85.2% | 90.0% | 90.1% |
-| all 21 | 84.4% | 91.2% | **92.0%** |
+| pieces not used for tuning (10) | 83.7% | 92.4% | **94.4%** |
+| pieces used for tuning (11) | 85.2% | 90.0% | 90.4% |
+| all 21 | 84.4% | 91.2% | **92.4%** |
 
-With 20-40 ms timing jitter, 3-8% missed and false notes, or pedal-length bars it still scores 90-92%. Weak spots: Beethoven 7-3 (79%), Chopin op. 10/1 (87%, wide fast right-hand arpeggios), a few pieces where the hands share a register. The truth is the staff, not the actual hand, so crossings are counted against the model.
+With 20-40 ms timing jitter, 3-8% missed and false notes, or pedal-length bars it still scores 90-92%.
+
+Second round (asked to be more accurate): a "local register" preference (a note's rank among the notes played within 3 s of it: lower ones lean left, higher ones right) added +0.4 overall and +0.5 on unseen pieces, so it is in. A "register memory" (running average of where each hand has been playing) raised the tuned half (90.1% to 91.4%) but lowered the unseen half (93.9% to 93.3%), and widening the local-register search did the same, so both were left out as overfitting. The mistakes that remain are scattered single notes (mostly left-hand notes in the middle register given to the right hand), not swapped passages; getting past about 92-94% probably needs more labelled scores than the 21 used here. Weak spots: Beethoven 7-3 (79%), Chopin op. 10/1 (87%, wide fast right-hand arpeggios), a few pieces where the hands share a register. The truth is the staff, not the actual hand, so crossings are counted against the model.
+
+## Small, quiet notes
+Transkun finds 97.6% of the notes in phone-style audio; of the 105 it misses (3 pieces), 71% last under 0.1 s and their median velocity is 32 against about 50-60 for all notes. Tried: (1) feeding it 44.1 kHz instead of 16 kHz: identical results; (2) adding the ByteDance model's extra notes that Transkun lacks: 419 extras, 19 real (5%), so about 20 false notes per real one even when restricted to short or loud ones; (3) lowering the decoder's "no note" score by 1.5: F1 98.4% to 52.7%, and by 0.25: 98.4% to 94.3% (false notes 31 to 231, missed 105 to 268). No setting helped, so nothing changed (`eval/tk_sensitivity.py`, `eval/extra_notes_from_other_model.py`).
