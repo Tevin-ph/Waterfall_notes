@@ -707,7 +707,7 @@ function scheduler() {
   while (S.nextIdx < song.notes.length && song.notes[S.nextIdx].t < horizon) {
     const n = song.notes[S.nextIdx++];
     const when = S.anchorCtx + (n.t - S.anchorPos) / S.speed;
-    if (S.synth && allowed(n) && when >= ac.currentTime - 0.01 && keyGeo[n.m + S.transpose]) playNote(n.m + S.transpose, n.v, Math.max(when, ac.currentTime), n.d / S.speed);
+    if (S.synth && allowed(n) && when >= ac.currentTime - 0.15 && keyGeo[n.m + S.transpose]) playNote(n.m + S.transpose, n.v, Math.max(when, ac.currentTime), n.d / S.speed);
   }
   while (beatOff() + S.nextBeat * beatLen() < horizon) {
     const t = beatOff() + S.nextBeat * beatLen(), when = S.anchorCtx + (t - S.anchorPos) / S.speed;
@@ -763,8 +763,27 @@ function color(n, alpha = 1) {
 const LOOK_AHEAD_SEC = 4, PERSP = 2.2;
 const SFAR = 1 / (1 + PERSP);
 
+// A graphics card that can't keep up makes notes jump, the picture slow and (if the page stalls long enough) sounds drop. While a song plays,
+// watch the frame time; if the middle frame takes over ~32 ms for a couple of seconds, ease the picture one step: normal pixel density, then no
+// glow, then the hands off. It never goes back up by itself (reload the page for full quality).
+const gov = { last: 0, buf: [], level: 0, stepAt: 0 };
+function watchFrames() {
+  const now = performance.now(), dt = now - gov.last; gov.last = now;
+  if (!S.playing || !gl3d || dt > 500 || dt <= 0) { gov.buf.length = 0; return; }       // paused, hidden tab or first frame: not a fair measurement
+  gov.buf.push(dt); if (gov.buf.length < 90) return;
+  const s = gov.buf.slice().sort((a, b) => a - b), med = s[s.length >> 1]; gov.buf.length = 0;
+  if (med < 32 || now - gov.stepAt < 3000 || gov.level >= 3) return;
+  gov.level++; gov.stepAt = now;
+  let what;
+  if (gov.level === 1) { gl3d.setQuality(1); what = "sharpness lowered"; }
+  else if (gov.level === 2) { gl3d.setQuality(2); what = "glow turned off"; }
+  else { if (S.showHands) { S.showHands = false; syncUI(); try { localStorage.setItem("wn.showHands", "0"); } catch (e) {} what = "hands turned off"; } else what = "nothing more to turn down"; }
+  console.warn("graphics eased (frame time " + Math.round(med) + " ms): " + what);
+  const h = $("hint"); if (h && song.notes.length) { h.style.display = ""; h.textContent = "Your graphics card is struggling, so I eased the picture (" + what + ") to keep the sound in time."; setTimeout(() => { if (h.textContent.startsWith("Your graphics")) h.style.display = "none"; }, 6000); }
+}
 function draw() {
   requestAnimationFrame(draw);
+  watchFrames();
   if (!W) return;
   const p = pos();
   videoSync(p);

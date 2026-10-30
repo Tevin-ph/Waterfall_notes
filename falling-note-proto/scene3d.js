@@ -193,8 +193,10 @@ export function createScene(stage) {
     setCam(D);
     scene.fog.near = D + 12; scene.fog.far = D + 80;
   }
+  let lastW = 0, lastH = 0, quality = 0;
   function resize(w, h) {
     if (!w || !h) return;
+    lastW = w; lastH = h;
     renderer.setSize(w, h, false); composer.setSize(w, h); bloom.resolution.set(w, h);
     aspect = w / h; view.cx = view.tcx; view.half = view.thalf; placeCamera();
   }
@@ -237,30 +239,30 @@ export function createScene(stage) {
   const ZK = 4.1;                                                        // where the knuckle line of a resting hand sits (the key edge is at 0)
   const skinMats = [];                                                   // every skin material, so the tone can be changed
   let skinHex = 0xe0b08c;
-  const mkSkin = (rough = 0.62) => { const m = new T.MeshStandardMaterial({ color: skinHex, roughness: rough, metalness: 0, envMapIntensity: 0.5 }); skinMats.push(m); return m; };
+  const mkSkin = () => { const m = new T.MeshLambertMaterial({ color: skinHex }); skinMats.push(m); return m; };      // Lambert: much cheaper to draw than the glossy PBR material, and skin is matte anyway
   function palmGeometry() {                                              // outline seen from above: x across, y toward the wrist (negative); knuckle edge at 0
     const s = new T.Shape();
     s.moveTo(-1.95, -0.1); s.quadraticCurveTo(-1.95, 0.25, -1.55, 0.25); s.lineTo(1.65, 0.25); s.quadraticCurveTo(2.1, 0.25, 2.05, -0.3);
     s.lineTo(1.75, -2.6); s.quadraticCurveTo(1.55, -4.4, 0.6, -4.6); s.lineTo(-0.7, -4.6); s.quadraticCurveTo(-1.9, -4.4, -2.1, -3.0);
     s.quadraticCurveTo(-2.7, -1.9, -2.55, -0.9); s.quadraticCurveTo(-2.35, -0.2, -1.95, -0.1);
-    const g = new T.ExtrudeGeometry(s, { depth: 0.5, bevelEnabled: true, bevelThickness: 0.25, bevelSize: 0.22, bevelSegments: 5, curveSegments: 14 });
+    const g = new T.ExtrudeGeometry(s, { depth: 0.5, bevelEnabled: true, bevelThickness: 0.25, bevelSize: 0.22, bevelSegments: 2, curveSegments: 8 });
     g.rotateX(-Math.PI / 2);                                             // (x, y, z) -> (x, z, -y): the shape's negative y (toward the wrist) lands at positive world z
     return g;
   }
   const palmGeo = palmGeometry();
   const handObjs = [0, 1].map(h => {
     const g = new T.Group(); g.visible = false; scene.add(g);
-    const skin = mkSkin(), nailMat = new T.MeshStandardMaterial({ color: 0xf4d9cf, roughness: 0.3, metalness: 0 });
+    const skin = mkSkin(), nailMat = new T.MeshLambertMaterial({ color: 0xf4d9cf });
     const palm = new T.Mesh(palmGeo, skin); g.add(palm);
-    const arm = new T.Mesh(new T.CylinderGeometry(1.15, 1.4, 7, 24), skin); arm.rotation.x = Math.PI / 2; g.add(arm);                // tapered wrist and forearm along z
+    const arm = new T.Mesh(new T.CylinderGeometry(1.15, 1.4, 7, 16), skin); arm.rotation.x = Math.PI / 2; g.add(arm);                // tapered wrist and forearm along z
     const fingers = FINGERS.map(F => {
-      const n = F.l.length, tipMat = mkSkin(0.55), parts = [], knuckle = new T.Mesh(new T.SphereGeometry(F.r * 1.12, 16, 12), skin);
+      const n = F.l.length, tipMat = mkSkin(), parts = [], knuckle = new T.Mesh(new T.SphereGeometry(F.r * 1.12, 10, 8), skin);
       g.add(knuckle);
       for (let k = 0; k < n; k++) {
-        const r = F.r * (1 - 0.07 * k), mesh = new T.Mesh(new T.CapsuleGeometry(r, F.l[k], 6, 14), k === n - 1 ? tipMat : skin);
+        const r = F.r * (1 - 0.07 * k), mesh = new T.Mesh(new T.CapsuleGeometry(r, F.l[k], 3, 10), k === n - 1 ? tipMat : skin);
         g.add(mesh); parts.push(mesh);
       }
-      const nail = new T.Mesh(new T.SphereGeometry(F.r * 0.62, 12, 10), nailMat);
+      const nail = new T.Mesh(new T.SphereGeometry(F.r * 0.62, 8, 6), nailMat);
       nail.scale.set(0.95, 0.28, 1.15); nail.position.set(0, F.l[n - 1] / 2 - F.r * 0.1, F.r * 0.62); parts[n - 1].add(nail);          // a nail on top of the last bone
       return { parts, knuckle, tipMat, x: 0, y: 1, z: 2 };
     });
@@ -396,5 +398,13 @@ export function createScene(stage) {
     HAND[0] = new T.Color(r).getHex(); HAND[1] = new T.Color(l).getHex();
     for (const m in keys) keys[m].hand = -2;                 // forces each key to repaint with the new colors
   }
-  return { render, resize, setColors, setSkin, dispose() { renderer.dispose(); el.remove(); } };
+  // Quality steps for a graphics card that can't keep up (the page watches the frame time and asks): 1 = draw at normal pixel density,
+  // 2 = also switch the glow off. Returns the level actually in force.
+  function setQuality(level) {
+    quality = level; renderer.setPixelRatio(level >= 1 ? 1 : Math.min(2, window.devicePixelRatio || 1)); bloom.enabled = level < 2;
+    if (lastW) resize(lastW, lastH); return quality;
+  }
+  // compile every shader now (hands included, though hidden) so switching the hands on later doesn't freeze the picture for a second
+  try { renderer.compile(scene, camera); } catch (e) { console.warn("shader precompile skipped:", e); }
+  return { render, resize, setColors, setSkin, setQuality, dispose() { renderer.dispose(); el.remove(); } };
 }
