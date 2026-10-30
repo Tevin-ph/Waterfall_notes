@@ -55,6 +55,10 @@
   .chipb { display:flex; align-items:center; gap:10px; padding:11px 16px; border-radius:10px; font-weight:500; background:transparent; }
   .chipb svg { width:15px; height:15px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; }
   .rights { display:flex; align-items:center; gap:10px; margin-top:16px; color:var(--dim); cursor:pointer; width:fit-content; }
+  #advOpts { margin-top:14px; color:var(--dim); }
+  #advOpts summary { cursor:pointer; width:fit-content; font-size:13px; padding:4px 0; user-select:none; }
+  #advOpts summary:hover { color:var(--ink); }
+  #advOpts .advNote { font-size:12.5px; line-height:1.45; max-width:560px; padding:4px 0 2px; }
   .rights input { width:16px; height:16px; accent-color:var(--accent); }
   #embedBox { margin-top:22px; border:1px solid var(--line2); border-radius:14px; background:var(--panel); overflow:hidden; }
   #embedBox[hidden] { display:none; }
@@ -247,16 +251,19 @@
         <button class="act" id="capAudio"title="Listen to the sound of a browser tab (a video you have open) and turn it into notes">Capture audio</button>
         <label class="act" style="cursor:pointer">Choose File<input id="anyFile" type="file" accept=".mid,.midi,.pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.xml,.musicxml,audio/*,video/*,image/*"></label>
       </div>
+      <details id="advOpts"><summary>More options</summary>
+        <div class="advNote">Normally you don't need these: the app picks the best way by itself (Automatic reads the picture if it is a falling-notes video, and listens to the sound otherwise).</div>
       <label class="rights sens"><span>Note detail</span>
         <select id="sens" title="How many notes to look for in a recording or video">
           <option value="auto">Automatic (read the picture if it's a falling-notes video, else listen)</option><option value="picture">Read the picture only</option><option value="score">Read the sheet music in the video</option><option value="piano">Listen: piano model (most accurate)</option><option value="balanced">Listen: balanced (browser only)</option><option value="more">More notes (adds some extras)</option><option value="fewer">Fewer notes, cleaner</option>
         </select>
       </label>
-      <label class="rights sens"><span>Piano model speed</span>
+      <label class="rights sens"><span>Older model speed</span>
         <select id="pspeed" title="Only applies to the older fallback model. The Transkun model, used when it is installed, has no speed setting.">
           <option value="best">Best accuracy (still faster than before)</option><option value="fast">Faster (up to ~2x; may miss a few notes where it joins sections)</option>
         </select>
       </label>
+      </details>
       <div id="createMsg" aria-live="polite"></div>
       <div id="latestCard" hidden>
         <div class="lcText"><div class="lcKicker">Newest file in your Downloads</div><div id="lcName"></div><div id="lcMeta"></div></div>
