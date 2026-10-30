@@ -589,7 +589,7 @@ const S = { playing: false, speed: 1, anchorCtx: 0, anchorPos: 0, nextIdx: 0, ne
             loopA: null, loopB: null, loopOn: false, look: "flat", hands: "both" };
 const LOOKAHEAD = 0.25; // seconds of audio scheduled ahead
 const rec = { on: false, notes: [], open: new Map(), count: 0 };
-S.letters = true; S.transpose = 0; S.synth = true; S.showVideo = true; S.zoom = "auto"; S.view = "flat"; S.pedal = true;
+S.letters = true; S.transpose = 0; S.synth = S.synthUser = true; S.showVideo = true; S.zoom = "auto"; S.view = "flat"; S.pedal = true;
 let editorUI = null;     // set once editor.js has loaded; declared up here because syncUI() runs at start-up
 
 function pos() {
@@ -975,8 +975,8 @@ function setVideo(blob) {
   if (blob) { const u = URL.createObjectURL(blob); v.dataset.url = u; v.src = u; ev.src = u; } else { delete v.dataset.url; v.removeAttribute("src"); v.load(); ev.removeAttribute("src"); ev.load(); }
   v.hidden = true; ev.hidden = true;     // revealed by vidVis() only once the video really has a picture
   $("vidToggle").hidden = true; $("synthToggle").hidden = !blob;
-  S.synth = !blob;                       // with a video, its own sound plays; piano sound is optional
-  $("synthToggle").classList.toggle("on", S.synth);
+  S.synthUser = !blob;                   // with a video, its own sound plays; piano sound is optional
+  syncSound();
 }
 // Show the video panel only when the file really has a picture the browser can draw (no empty black box).
 function vidVis() {
@@ -986,7 +986,7 @@ function vidVis() {
 $("pVideo").addEventListener("loadedmetadata", vidVis);
 $("pVideo").addEventListener("error", () => {   // the browser can't play this video (e.g. a phone format): use the piano sound, hide the panel
   if (!song.video) return;
-  S.synth = true; $("synthToggle").classList.add("on"); vidVis();
+  S.synthUser = true; syncSound(); vidVis();
 });
 function videoSync(p) {
   const inEdit = $("v-edit").classList.contains("show"), v = inEdit ? $("eVideo") : $("pVideo"), other = inEdit ? $("pVideo") : $("eVideo");
@@ -1457,10 +1457,22 @@ $("recNew").onclick = async () => {
   loadSong({ notes: [], bpm: 100, name: "New recording" }); go("practice"); startRec();
 };
 $("saveLib").onclick = async () => { const ok = await saveCurrent(); const b = $("saveLib"); b.textContent = ok ? "Saved ✓" : "Nothing to save"; setTimeout(() => { b.innerHTML = ico("save") + "Save"; }, 1600); };
-const bumpTranspose = d => { S.transpose = Math.max(-12, Math.min(12, S.transpose + d)); $("trVal").textContent = trLabel(); };
+// Transposing must change what you hear. The piano sound follows it. A video's own recorded sound can't be shifted, so while transposed
+// the piano sound takes over (and the video is muted); back at 0 it returns to whatever the toggle says.
+function syncSound() {
+  const forced = !!song.video && S.transpose !== 0;
+  S.synth = S.synthUser || forced;
+  $("synthToggle").classList.toggle("on", S.synth);
+  $("synthToggle").title = forced ? "On while transposed: the video's own sound can't be shifted" : "";
+}
+const setTranspose = t => {
+  S.transpose = Math.max(-12, Math.min(12, t)); $("trVal").textContent = trLabel();
+  syncSound(); resetSched(pos());
+};
+const bumpTranspose = d => setTranspose(S.transpose + d);
 $("trDown").onclick = () => bumpTranspose(-1);
 $("trUp").onclick = () => bumpTranspose(1);
-$("trVal").onclick = () => { S.transpose = 0; $("trVal").textContent = trLabel(); };
+$("trVal").onclick = () => setTranspose(0);
 $("trVal").title = "Click to reset";
 $("play").onclick = () => { if (rec.on) stopRec(); else S.playing ? pause() : play(); };
 $("restart").onclick = () => seek(S.loopOn && S.loopA != null ? S.loopA : 0);
@@ -1477,7 +1489,7 @@ const setMenu = open => { $("settingsPop").hidden = !open; $("settingsBtn").setA
 $("settingsBtn").onclick = e => { e.stopPropagation(); setMenu($("settingsPop").hidden); };
 document.addEventListener("click", e => { if (!e.target.closest(".menuWrap")) setMenu(false); });
 document.addEventListener("keydown", e => { if (e.key === "Escape") setMenu(false); });
-$("synthToggle").onclick = () => { S.synth = !S.synth; $("synthToggle").classList.toggle("on", S.synth); resetSched(pos()); };
+$("synthToggle").onclick = () => { S.synthUser = !S.synth; syncSound(); resetSched(pos()); };
 $("midiBtn").onclick = connectKeyboard;
 $("rec").onclick = () => rec.on ? stopRec() : startRec();
 $("saveMidi").onclick = saveMidi;
