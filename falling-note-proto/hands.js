@@ -7,7 +7,7 @@
 //  * a weak prior keeps low notes in the left hand and high notes in the right (breaks ties and covers the start of a piece).
 // Parameters were tuned on part of the ASAP piano scores and scored on the rest (see eval/eval_hands.mjs); they are a model of piano playing,
 // not a measurement of any one player.
-export const DEFAULTS = { spanOk: 7, wSpan: 2, wCount: 6, move: 20, free: 4, wMove: 0.2, wPrior: 1.5, wCross: 0.6, beam: 40, group: 0.05 };
+export const DEFAULTS = { spanOk: 7, wSpan: 2, wCount: 6, move: 20, free: 4, wMove: 0.2, wPrior: 1.5, wCross: 0.6, priorLo: 56, priorHi: 66, wReg: 0, regW: 10, tau: 3, wLoc: 8, locT: 3, locQ: 0.45, beam: 40, group: 0.05 };
 
 export function assignHands(notes, opts = {}) {
   const P = { ...DEFAULTS, ...opts };
@@ -20,8 +20,19 @@ export function assignHands(notes, opts = {}) {
     if (g && notes[i].t - g.t <= P.group) g.idx.push(i); else groups.push({ t: notes[i].t, idx: [i] });
   }
   for (const g of groups) g.idx.sort((a, b) => notes[a].m - notes[b].m);
+  // where each note sits among the notes played around it (0 = lowest, 1 = highest within +-locT seconds): lower ones lean left, higher ones right,
+  // so the split follows the register of the passage instead of one fixed pitch
+  const q = new Float64Array(notes.length);
+  if (P.wLoc) {
+    const sorted = order.map(i => ({ i, t: notes[i].t, m: notes[i].m })); let lo = 0, hi = 0;
+    for (let k = 0; k < sorted.length; k++) {
+      while (sorted[lo].t < sorted[k].t - P.locT) lo++; while (hi < sorted.length && sorted[hi].t <= sorted[k].t + P.locT) hi++;
+      let below = 0, equal = 0; for (let j = lo; j < hi; j++) { if (sorted[j].m < sorted[k].m) below++; else if (sorted[j].m === sorted[k].m) equal++; }
+      q[sorted[k].i] = (below + equal / 2) / Math.max(1, hi - lo);
+    }
+  }
   const hold = n => n.t + Math.max(0.05, n.kd != null ? n.kd : n.d);          // when the key comes up: the held length when known
-  let beam = [{ cost: 0, pos: [null, null], at: [-9, -9], held: [], prev: null, s: 0 }];
+  let beam = [{ cost: 0, pos: [null, null], ema: [null, null], at: [-9, -9], held: [], prev: null, s: 0 }];
   const nextBeam = [];
   for (let gi = 0; gi < groups.length; gi++) {
     const g = groups[gi], n = g.idx.length, t = g.t;
@@ -29,7 +40,7 @@ export function assignHands(notes, opts = {}) {
     for (const st of beam) {
       const held = st.held.filter(h => h.end > t + 0.03);                        // keys that hand is still holding down
       for (let s = 0; s <= n; s++) {                                             // lower s notes to the left hand, the rest to the right
-        let cost = st.cost; const pos = st.pos.slice(), at = st.at.slice();
+        let cost = st.cost; const pos = st.pos.slice(), at = st.at.slice(), ema = st.ema.slice();
         for (const H of [1, 0]) {
           const mine = H === 1 ? g.idx.slice(0, s) : g.idx.slice(s);
           if (!mine.length) continue;
@@ -39,21 +50,26 @@ export function assignHands(notes, opts = {}) {
           cost += P.wCount * Math.max(0, new Set(all).size - 5);
           const center = ps.reduce((a, b) => a + b, 0) / ps.length;
           if (pos[H] != null) cost += P.wMove * Math.max(0, Math.abs(center - pos[H]) - (P.free + P.move * Math.max(0, t - at[H])));
-          for (const m of ps) cost += P.wPrior * (H === 0 ? Math.max(0, 56 - m) : Math.max(0, m - 66)) / 12;
+          if (P.wLoc) for (const i of mine) cost += P.wLoc * (H === 0 ? Math.max(0, P.locQ - q[i]) : Math.max(0, q[i] - P.locQ));
+          for (const m of ps) cost += P.wPrior * (H === 0 ? Math.max(0, P.priorLo - m) : Math.max(0, m - P.priorHi)) / 12;
+          // the register each hand has been working in lately (a running average): playing far from it is unlikely even if the last note was near
+          if (ema[H] != null && P.wReg) cost += P.wReg * Math.max(0, Math.abs(center - ema[H]) - P.regW);
           const other = pos[1 - H];                                              // the hands rarely cross
           if (other != null && t - at[1 - H] < 0.6) cost += P.wCross * Math.max(0, H === 0 ? other - center : center - other) / 4;
+          const a = at[H] < -1 ? 1 : 1 - Math.exp(-(t - at[H]) / P.tau);
+          ema[H] = ema[H] == null ? center : ema[H] + (center - ema[H]) * a;
           pos[H] = center; at[H] = t;
         }
         const nh = held.slice();
         for (let k = 0; k < n; k++) nh.push({ m: notes[g.idx[k]].m, end: hold(notes[g.idx[k]]), hand: k < s ? 1 : 0 });
-        nextBeam.push({ cost, pos, at, held: nh, prev: st, s });
+        nextBeam.push({ cost, pos, ema, at, held: nh, prev: st, s });
       }
     }
     nextBeam.sort((a, b) => a.cost - b.cost);
     // states that look the same to the future (same positions rounded, same held keys) keep only their cheapest
     const seen = new Set(), keep = [];
     for (const st of nextBeam) {
-      const key = st.pos.map(p => (p == null ? "-" : Math.round(p / 2))).join(",") + "|" + st.held.map(h => h.hand + ":" + h.m + ":" + Math.round(h.end * 4)).join(",");
+      const key = st.pos.map(p => (p == null ? "-" : Math.round(p / 2))).join(",") + "~" + st.ema.map(p => (p == null ? "-" : Math.round(p / 4))).join(",") + "|" + st.held.map(h => h.hand + ":" + h.m + ":" + Math.round(h.end * 4)).join(",");
       if (seen.has(key)) continue; seen.add(key); keep.push(st); if (keep.length >= P.beam) break;
     }
     beam = keep;

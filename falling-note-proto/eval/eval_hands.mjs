@@ -15,10 +15,10 @@ let seed = 42; const rnd = () => (seed = (seed * 1664525 + 1013904223) % 4294967
 const train = songs.filter((_, i) => i % 2 === 0), test = songs.filter((_, i) => i % 2 === 1);
 let opts = { ...DEFAULTS };
 if (tune) {
-  const space = { spanOk: [7, 8, 9, 10, 11], wSpan: [0.4, 0.8, 1.2, 2], wCount: [2, 6, 12], move: [20, 36, 60], free: [4, 7, 10], wMove: [0.2, 0.5, 1, 2], wPrior: [0.2, 0.5, 0.8, 1.5], wCross: [0, 0.6, 1.5] };
+  const space = process.argv.includes('local') ? { wLoc: [0.5, 1, 2, 4, 8], locT: [1.5, 3, 5, 8], locQ: [0.35, 0.45, 0.5, 0.55, 0.65], wPrior: [0.2, 0.5, 1.5] } : { spanOk: [7, 8, 9, 10, 11], wSpan: [0.4, 0.8, 1.2, 2], wCount: [2, 6, 12], move: [20, 36, 60], free: [4, 7, 10], wMove: [0.2, 0.5, 1, 2], wPrior: [0.2, 0.5, 0.8, 1.5, 2.5], wCross: [0, 0.6, 1.5], priorLo: [50, 54, 56, 58, 60], priorHi: [62, 64, 66, 70, 72], wReg: [0, 0.1, 0.25, 0.5, 1], regW: [6, 10, 14], tau: [1.5, 3, 6] };
   let best = weighted(train, s => model(s, opts));
-  for (let it = 0; it < 90; it++) {
-    const k = Object.keys(space)[Math.floor(rnd() * 8)], v = space[k][Math.floor(rnd() * space[k].length)];
+  for (let it = 0; it < 160; it++) {
+    const k = Object.keys(space)[Math.floor(rnd() * Object.keys(space).length)], v = space[k][Math.floor(rnd() * space[k].length)];
     const trial = { ...opts, [k]: v }, sc = weighted(train, s => model(s, trial));
     if (sc > best + 1e-4) { best = sc; opts = trial; console.log("  tuned on train: %s -> %s=%s", (100 * sc).toFixed(2) + "%", k, v); }
   }
