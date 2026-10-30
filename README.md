@@ -1,4 +1,4 @@
-# Waterfall Notes
+﻿# Waterfall Notes
 
 A falling-notes piano trainer, built from a behavior-level study of the public Falling Note web app (see `falling-note-spec.md`). All code here is original.
 
@@ -14,7 +14,7 @@ Then open http://localhost:8765 in Chrome or Edge.
 
 - **Library**: every song you make is saved on this computer (browser storage). Open or delete them.
 - **Create**: paste a direct link to a file, press Record to play a new song in on a MIDI keyboard, choose or drop a file, or start from a built-in tune.
-- **Practice**: 3D falling notes (straight down by default, or a 3D tilt) over an 88-key piano with note letters and separate colors per hand (pickable). Transpose (-12 to +12; a video's own sound is pitch-shifted live with signalsmith-stretch, and falls back to the piano sound if that can't load), speed slider, a repeat section (Start / End / Loop), count-in, metronome (volume, beats per bar), tempo (BPM stepper, Tap, and Auto for steady music), optional animated hands, pedal view (hide the pedal sustain by default), right/left hand only. Connect a MIDI keyboard, record layered takes, Save, and export `.mid`.
+- **Practice**: 3D falling notes (straight down by default, or a 3D tilt) over an 88-key piano with note letters and separate colors per hand (pickable). Transpose (-12 to +12; a video's own sound is pitch-shifted live with signalsmith-stretch, and falls back to the piano sound if that can't load), speed slider, a repeat section (Start / End / Loop), count-in, metronome (volume, beats per bar), tempo (BPM stepper, Tap, and Auto for steady music), optional animated hands (drawn cheaply, and the page eases the picture if the graphics card can't keep up), pedal view (hide the pedal sustain by default), right/left hand only. Connect a MIDI keyboard, record layered takes, Save, and export `.mid`.
 - **Scan sheet music**: photo, PDF or MusicXML to notes.
 - **Sheet music** (the reverse): any song's notes drawn as a two-staff score, 16 bars a page, with Download MusicXML and Print (`musicxml.js` writes the notation, `vendor/osmd.js` draws it). It is an approximation: rhythm is rounded to sixteenths using the song's tempo and first beat (set Auto or Tap first), each hand is one voice, the key is guessed from the notes, and notes held under moving ones are shown short. Writing 21 real scores out and reading them back gave the same pitch, hand and sixteenth for 97.4% of the notes.
 
