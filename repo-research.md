@@ -78,3 +78,14 @@ It is better on every measure, and by a wide margin on noisy audio, with no key-
 ## Still not tried
 * Demucs and beat_this (see the table for why). Anything that watches the hands: only works for top-down camera views (V2N), so it can't be the base.
 * Anything that watches the hands: only works for top-down camera views (V2N), so it can't be the base.
+
+## Left and right hand model
+The old rule ("below middle C is left") is right for 84.4% of notes in 21 piano scores whose staves give the true hands (ASAP dataset, MusicXML, 8.9 MB, non-commercial licence; scripts in `falling-note-proto/eval`). `hands.js` replaces it for audio and single-track MIDI imports: notes that start together are split between the hands at the cheapest point (a beam search over the whole piece) using what hands can do: at most about an octave of stretch and five keys (counting keys still held), limited speed of movement, rare crossing, and a weak pitch preference. Settings were tuned on half of the pieces and scored on the other half:
+
+| | C4 rule | best single split pitch per song (uses the answers) | hand model |
+|---|---|---|---|
+| pieces not used for tuning (10) | 83.7% | 92.4% | **93.9%** |
+| pieces used for tuning (11) | 85.2% | 90.0% | 90.1% |
+| all 21 | 84.4% | 91.2% | **92.0%** |
+
+With 20-40 ms timing jitter, 3-8% missed and false notes, or pedal-length bars it still scores 90-92%. Weak spots: Beethoven 7-3 (79%), Chopin op. 10/1 (87%, wide fast right-hand arpeggios), a few pieces where the hands share a register. The truth is the staff, not the actual hand, so crossings are counted against the model.

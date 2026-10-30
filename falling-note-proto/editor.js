@@ -188,6 +188,15 @@ export function initEditor(api) {
   const doUndo = () => { if (!undo.length) return; redo.push(snapshot()); restore(undo.pop()); };
   const doRedo = () => { if (!redo.length) return; undo.push(snapshot()); restore(redo.pop()); };
   $("eUndo").onclick = doUndo; $("eRedo").onclick = doRedo; $("eDelete").onclick = del;
+  // Auto hands (hands.js): works on every note so the context is right, but only writes the selected notes when some are selected.
+  $("eAutoHands").onclick = async () => {
+    const { assignHands } = await import("./hands.js"); let changed = 0;
+    edit(() => {
+      const all = sources().map(({ n }) => n), copies = all.map(n => ({ ...n, h: undefined })); assignHands(copies);
+      all.forEach((n, i) => { if ((!sel.size || sel.has(n.id)) && n.h !== copies[i].h) { n.h = copies[i].h; changed++; } });
+    });
+    updateInfo(); $("eInfo").textContent += "  ·  hands changed on " + changed + " notes (Undo to go back)";
+  };
   $("eRight").onclick = () => setHand(0); $("eLeft").onclick = () => setHand(1);
   $("eDown").onclick = () => shiftPitch(-1); $("eUp").onclick = () => shiftPitch(1);
   $("eOctDown").onclick = () => shiftPitch(-12); $("eOctUp").onclick = () => shiftPitch(12);
