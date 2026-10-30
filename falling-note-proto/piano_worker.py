@@ -57,6 +57,32 @@ def _events_fast(tr, audio, hop_s=HOP_BEST):
     return events, pedal or []
 
 
+NOISY_ABOVE = 0.0026          # measured: clean studio recordings 0.0014-0.0018, phone-style copies 0.0035-0.0037
+
+
+def _noisiness(x, sr):
+    """The steady noise floor (12th percentile of each frequency over time, 100-5000 Hz) as a share of the typical peak level."""
+    import numpy as np
+    from scipy.signal import stft
+    f, t, Z = stft(x / (np.abs(x).max() + 1e-9), fs=sr, nperseg=2048, noverlap=1536)
+    mag = np.abs(Z)[(f >= 100) & (f <= 5000)]
+    return float(np.percentile(mag, 12, axis=1).mean() / (np.median(mag.max(axis=0)) + 1e-9))
+
+
+def _denoise(x, sr, alpha=1.6, floor=0.12):
+    """Turn down steady hiss and room tone: per-frequency noise floor from the quietest frames, then a soft gain smoothed over time so the
+    start of a note isn't chopped. On phone-style test copies of 3 MAESTRO pieces this cut false notes 373 -> 322 (F1 91.1 -> 91.7)."""
+    import numpy as np
+    from scipy.ndimage import uniform_filter1d
+    from scipy.signal import istft, stft
+    f, t, Z = stft(x, fs=sr, nperseg=2048, noverlap=1536)
+    mag = np.abs(Z); noise = np.percentile(mag, 12, axis=1, keepdims=True)
+    gain = uniform_filter1d(np.clip(1 - alpha * noise / (mag + 1e-9), floor, 1.0), size=3, axis=1)
+    _, y = istft(Z * gain, fs=sr, nperseg=2048, noverlap=1536)
+    y = y[: len(x)].astype(np.float32)
+    return np.ascontiguousarray(0.9 * y / (np.abs(y).max() + 1e-9), dtype=np.float32)
+
+
 def held_length(on, d, onsets):
     """Guess how long the key was held, never more than d (how long the note sounds). With the pedal down a note rings on after the finger
     lets go, and audio can't show when that was. Tuned against real key releases (MAESTRO, 3 held-out pieces, 4290 notes): half the time to
@@ -83,6 +109,10 @@ def transcribe_file(wav_path, out_path, fast=False):
         import librosa
         audio = librosa.resample(audio, orig_sr=sr, target_sr=sample_rate)
     audio = np.ascontiguousarray(audio, dtype=np.float32)
+    # Only recordings that measure as noisy are cleaned first; clean ones are left exactly as they are (not tested on clean audio).
+    noisy = os.environ.get("PIANO_DENOISE", "1") != "0" and _noisiness(audio, sample_rate) > NOISY_ABOVE
+    if noisy:
+        audio = _denoise(audio, sample_rate)
     tr = _load_model()
     try:
         events, pedal_events = _events_fast(tr, audio, HOP_FAST if fast else HOP_BEST)
@@ -112,7 +142,7 @@ def transcribe_file(wav_path, out_path, fast=False):
                 note["kd"] = round(kd, 3)
         notes.append(note)
     with open(out_path, "w") as f:
-        json.dump({"notes": notes, "pedal": [{"t": a, "d": max(0.05, b - a)} for a, b in pedals]}, f)
+        json.dump({"notes": notes, "pedal": [{"t": a, "d": max(0.05, b - a)} for a, b in pedals], "denoised": bool(noisy)}, f)
 
 
 def serve():
