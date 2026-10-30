@@ -401,6 +401,7 @@
               <label class="srow"><span>Piano view</span><select id="zoom"><option value="auto">Zoom to the song</option><option value="full">Full piano</option></select></label>
               <div class="toggles">
                 <button id="letters" class="on" title="Show note names on the bars">Letters</button>
+                <button id="handsBtn" title="Show two hands playing the song on the keys (a rough guide, not real fingering)">Hands</button>
                 <button id="metro">Metronome</button>
                 <button id="countin">Count-in</button>
                 <button id="vidToggle" class="on" hidden title="Show or hide the video">Video</button>
@@ -616,7 +617,8 @@ const S = { playing: false, speed: 1, anchorCtx: 0, anchorPos: 0, nextIdx: 0, ne
             loopA: null, loopB: null, loopOn: false, look: "flat", hands: "both" };
 const LOOKAHEAD = 0.25; // seconds of audio scheduled ahead
 const rec = { on: false, notes: [], open: new Map(), count: 0 };
-S.metroVol = 0.6; S.beats = 4;
+S.metroVol = 0.6; S.beats = 4; S.showHands = false;
+try { S.showHands = localStorage.getItem("wn.showHands") === "1"; } catch (e) {}
 S.letters = true; S.transpose = 0; S.synth = S.synthUser = true; S.showVideo = true; S.zoom = "auto"; S.view = "flat"; S.pedal = true;
 let editorUI = null;     // set once editor.js has loaded; declared up here because syncUI() runs at start-up
 
@@ -725,7 +727,7 @@ function draw() {
   videoSync(p);
   if (gl3d) {
     gl3d.render({ p, notes: song.notes, startIdx: Math.max(0, firstIdx(p - 12)), transpose: S.transpose, allowed, letters: S.letters, look: S.look,
-                  live: liveKeys, beatLen: beatLen(), beatOff: beatOff(), bar: S.beats, loopA: S.loopA, loopB: S.loopB, lookAhead: LOOK_AHEAD_SEC, range: viewRange(), view: S.view, pedal: S.pedal });
+                  live: liveKeys, beatLen: beatLen(), beatOff: beatOff(), bar: S.beats, loopA: S.loopA, loopB: S.loopB, lookAhead: LOOK_AHEAD_SEC, range: viewRange(), view: S.view, pedal: S.pedal, showHands: S.showHands });
     const ci = $("countIn");
     ci.textContent = S.countin && S.playing && ac.currentTime < S.anchorCtx ? Math.min(4, Math.ceil((S.anchorCtx - ac.currentTime) / (beatLen() / S.speed))) : "";
     updateTime(p); return;
@@ -973,7 +975,7 @@ function syncUI() {
   $("play").innerHTML = ico(S.playing ? "pause" : "play") + (S.playing ? "Pause" : "Play");
   $("metro").classList.toggle("on", S.metro); $("countin").classList.toggle("on", S.countin);
   $("loopOn").classList.toggle("on", S.loopOn);
-  $("letters").classList.toggle("on", S.letters);
+  $("letters").classList.toggle("on", S.letters); $("handsBtn").classList.toggle("on", S.showHands);
   $("rec").classList.toggle("rec", rec.on); $("rec").innerHTML = rec.on ? "&#9632; Stop" : ico("circle") + "Record";
   $("loopA").classList.toggle("on", S.loopA != null); $("loopB").classList.toggle("on", S.loopB != null);
   if (editorUI) editorUI.setPlaying(S.playing);
@@ -1558,6 +1560,7 @@ $("colSet").onchange = e => { if (e.target.value) { const [r, l] = e.target.valu
 try { const c = (localStorage.getItem("wn.colors") || "").split(","); if (/^#[0-9a-f]{6}$/i.test(c[0]) && /^#[0-9a-f]{6}$/i.test(c[1])) setColors(c[0], c[1], true); } catch (e) {}
 $("hands").onchange =e => { S.hands = e.target.value; resetSched(pos()); };
 $("letters").onclick = () => { S.letters = !S.letters; syncUI(); };
+$("handsBtn").onclick = () => { S.showHands = !S.showHands; syncUI(); try { localStorage.setItem("wn.showHands", S.showHands ? "1" : "0"); } catch (e) {} };
 $("vidToggle").onclick = () => { S.showVideo = !S.showVideo; vidVis(); $("vidToggle").classList.toggle("on", S.showVideo); };
 // Settings menu
 const setMenu = open => { $("settingsPop").hidden = !open; $("settingsBtn").setAttribute("aria-expanded", String(open)); };
