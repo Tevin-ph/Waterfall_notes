@@ -32,7 +32,6 @@ Then open http://localhost:8765 in Chrome or Edge.
 - Sheet music photo or PDF: needs [Audiveris](https://github.com/Audiveris/audiveris) installed separately. MusicXML files work without it.
 - Direct file link: the helper downloads it with `curl`, only from public addresses (localhost and LAN addresses are refused).
 - Instagram, YouTube and similar links are not downloaded (their terms don't allow it). Pasting one opens the video in a new tab; then **Capture audio** listens to that tab's sound while you play it and turns it into notes.
-- Links and captured audio need the "I own the rights to this media or have permission to use it" box ticked. It is a self-declaration, not a check.
 - **YouTube links (listening, no download):** pasting a YouTube link shows the "use your file" card; "play it here instead" loads YouTube's official player in the page. Press Start, pick *This tab* with *Share tab audio* in Chrome's share window, and the app presses play through YouTube's player controls, listens with a real progress bar (time played of length), and stops when the player reports the video ended. First 10 minutes only. Ads that YouTube plays in the embed would be heard too.
 - **Latest download:** the button on Create asks the helper for the newest video, audio, MIDI, PDF or photo in your Downloads folder, shows you its name, and only uses it after you confirm. The helper answers only this app's own page (checked Host, Origin and a header), and files over 400 MB are refused.
 - Played in on a MIDI keyboard
