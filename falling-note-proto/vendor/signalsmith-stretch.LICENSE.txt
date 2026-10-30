@@ -1,0 +1,2 @@
+signalsmith-stretch 1.3.2 (npm), JS/WASM release of the Signalsmith Stretch library. Licence per its package.json: MIT. https://signalsmith-audio.co.uk/code/stretch/
+Used only to shift the pitch of a video's own sound when you transpose (loaded on demand by index.html).

@@ -1,4 +1,8 @@
-"""Runs the piano transcription model (ByteDance "High-resolution piano transcription", F1 ~0.97 on MAESTRO).
+"""Runs a piano transcription model with the piano environment's python. Two engines:
+  Transkun (preferred when installed: pip install transkun): its note lengths are the real key holds, not pedal-extended, and on the
+    phone-style test copies it found 98.6% of the notes (F1) where the ByteDance model found 92.4%. See repo-research.md.
+  ByteDance "High-resolution piano transcription" (F1 ~0.97 on MAESTRO): the fallback, with a guessed key-hold length.
+PIANO_ENGINE=bytedance forces the second one.
 
 Two ways to use it, with the piano environment's python:
   python piano_worker.py in.wav out.json     one file, then exit
@@ -13,6 +17,47 @@ import sys
 
 CHECKPOINT = os.path.join(os.path.expanduser("~"), "piano_transcription_inference_data", "note_F1=0.9677_pedal_F1=0.9186.pth")
 _model = None
+
+
+_tk = None
+
+
+def _transkun_available():
+    import importlib.util
+    return os.environ.get("PIANO_ENGINE", "auto") != "bytedance" and all(importlib.util.find_spec(m) for m in ("transkun", "moduleconf", "soxr"))
+
+
+def _load_transkun():
+    """The model and trained weights that ship inside the transkun package (MIT code; the weights' licence is not stated: fine for personal use)."""
+    global _tk
+    if _tk is None:
+        import moduleconf, torch, transkun
+        d = os.path.join(os.path.dirname(transkun.__file__), "pretrained")
+        conf = moduleconf.parseFromFile(os.path.join(d, "2.0.conf"))
+        model = conf["Model"].module.TransKun(conf=conf["Model"].config)
+        ck = torch.load(os.path.join(d, "2.0.pt"), map_location="cpu")
+        model.load_state_dict(ck["best_state_dict"] if "best_state_dict" in ck else ck["state_dict"], strict=False)
+        _tk = model.eval()
+    return _tk
+
+
+def _transkun_notes(audio, sr):
+    """audio: mono float32 at sample rate sr. Returns (notes, pedal) in the app's format; a note's length is the key hold."""
+    import numpy as np, soxr, torch
+    m = _load_transkun()
+    if sr != m.fs:
+        audio = soxr.resample(audio, sr, m.fs)
+    x = torch.from_numpy(np.ascontiguousarray(audio.reshape(-1, 1), dtype=np.float32))
+    with torch.no_grad():
+        est = m.transcribe(x, stepInSecond=None, segmentSizeInSecond=None, discardSecondHalf=False)
+    notes, pedal = [], []
+    for n in est:
+        if n.pitch > 0:
+            notes.append({"m": int(n.pitch), "t": float(n.start), "d": max(0.03, float(n.end) - float(n.start)), "v": min(1.0, max(0.2, float(n.velocity) / 127.0))})
+        elif -n.pitch == 64:                              # sustain pedal
+            pedal.append({"t": float(n.start), "d": max(0.05, float(n.end) - float(n.start))})
+    notes.sort(key=lambda n: (n["t"], n["m"]))
+    return notes, pedal
 
 
 def _load_model():
@@ -100,11 +145,19 @@ def held_length(on, d, onsets):
 def transcribe_file(wav_path, out_path, fast=False):
     import numpy as np
     import soundfile as sf
-    from piano_transcription_inference import sample_rate
+    sample_rate = SR                                       # 16000, the ByteDance library's own rate
 
     # The app sends a WAV already; read it directly (the library's own loader needs ffmpeg, which most PCs don't have).
     audio, sr = sf.read(wav_path, dtype="float32", always_2d=True)
     audio = audio.mean(axis=1)
+    if _transkun_available():
+        try:
+            notes, pedal = _transkun_notes(np.ascontiguousarray(audio, dtype=np.float32), sr)
+            with open(out_path, "w") as f:
+                json.dump({"notes": notes, "pedal": pedal, "engine": "transkun"}, f)
+            return
+        except Exception as e:                             # fall back to the other model rather than fail the song
+            print("Transkun failed, using the ByteDance model:", e, file=sys.stderr)
     if sr != sample_rate:
         import librosa
         audio = librosa.resample(audio, orig_sr=sr, target_sr=sample_rate)
@@ -142,7 +195,7 @@ def transcribe_file(wav_path, out_path, fast=False):
                 note["kd"] = round(kd, 3)
         notes.append(note)
     with open(out_path, "w") as f:
-        json.dump({"notes": notes, "pedal": [{"t": a, "d": max(0.05, b - a)} for a, b in pedals], "denoised": bool(noisy)}, f)
+        json.dump({"notes": notes, "pedal": [{"t": a, "d": max(0.05, b - a)} for a, b in pedals], "denoised": bool(noisy), "engine": "bytedance"}, f)
 
 
 def serve():
@@ -151,7 +204,14 @@ def serve():
     def say(obj):
         proto.write(json.dumps(obj) + "\n"); proto.flush()
     try:
-        _load_model()
+        try:
+            if _transkun_available():
+                _load_transkun()
+            else:
+                _load_model()
+        except Exception as e:
+            print("Transkun not usable, loading the ByteDance model:", e, file=sys.stderr)
+            os.environ["PIANO_ENGINE"] = "bytedance"; _load_model()
         say({"ready": True})
     except Exception as e:
         say({"ready": False, "error": str(e)[:300]}); return

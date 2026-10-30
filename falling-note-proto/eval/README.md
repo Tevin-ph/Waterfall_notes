@@ -18,3 +18,4 @@ and the rule gets almost none of them right. Three classical pieces with pedal a
 * `degrade.py`, `f1_degraded.py`, `noisiness.py`: make phone-style copies of the test pieces, then score precision/recall/F1 of the transcription on clean, degraded and denoised audio, and the noisiness gauge the helper uses.
 * `ghost.py`, `ghost2.py`: how many false notes appear on degraded audio and whether any rule or classifier removes more false notes than real ones (none did).
 * `tempo_test.mjs`, `tempo_steadiness.mjs` (run with node): tempo detector on made-up songs with a known tempo; fit score for steady, loose and random timing.
+* `eval_engines.py`: Transkun against the ByteDance model (with the key-hold guess) on clean and phone-style 16 kHz mono clips: F1, false and missed notes, key-hold accuracy. Needs each piece's `.tkw.json` (Transkun) and `.pred.json` / `.deg.json` (ByteDance) from running `piano_worker.py` on the clips.

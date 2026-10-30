@@ -9,7 +9,7 @@ Facts come from each README; "unsure" means the page did not say.
 |---|---|---|---|---|
 | bytedance/piano_transcription | Regression model with pedal, MAESTRO test frame AP 0.9285 (archived Dec 2025) | Apache-2.0 | yes (inference) | **In use** (via #2) |
 | qiuqiangkong/piano_transcription_inference | pip package running the ByteDance weights | not stated | yes | **In use**; confirm licence before shipping to others |
-| Yujia-Yan/Transkun | Neural semi-CRF piano transcriber; README: note onset F1 0.9833, onset+offset 0.8149 (column order unsure), pedal onset 0.8444 | MIT | CLI defaults to CPU | **Best candidate to try**: not installed here (needs a pip install and a checkpoint nobody could approve). Test on the degraded clips in `falling-note-proto/eval` first |
+| Yujia-Yan/Transkun | Neural semi-CRF piano transcriber; trained weights ship inside the pip package; note lengths are real key holds, not pedal-extended | code MIT (the weights' licence is not stated) | yes, about 0.7x real time | **Adopted as the preferred engine** (see the measured results below); the ByteDance model stays as the fallback |
 | EleutherAI/aria-amt | Seq-to-seq piano transcription, "preliminary" weights | Apache-2.0 | unsure, Python 3.11 | Skip for now |
 | sony/hFT-Transformer | Frequency-time transformer, ISMIR 2023 | code MIT, checkpoints CC BY-NC-SA | unsure | Skip: non-commercial weights |
 | spotify/basic-pitch | Light, any-instrument transcription | Apache-2.0 | yes | **In use** as the in-browser fallback |
@@ -31,11 +31,11 @@ Facts come from each README; "unsure" means the page did not say.
 ## Beat, tempo, separation, evaluation
 | Repo | What | Licence | Verdict |
 |---|---|---|---|
-| CPJKU/beat_this | Beat and downbeat tracker, small model about 8 MB, CPU works | MIT | Good if we later want audio-based beats; not installed |
+| CPJKU/beat_this | Beat and downbeat tracker, small model about 8 MB, CPU works | MIT | Not tried: no recording here has a known true tempo, so it could only be compared with other guesses, not scored. The note-based Auto tempo already refuses unsteady music |
 | CPJKU/madmom | DBN beat tracking | code BSD, models CC BY-NC-SA | Learn from |
 | mir-aidj/all-in-one | Tempo/beats/structure, heavy Windows install | MIT | Skip |
 | librosa/librosa | Audio analysis; used by the helper | ISC | In use |
-| facebookresearch/demucs | Source separation (a 6-source model has a piano stem, "a lot of bleeding"); repo archived | MIT | Worth testing for videos with music or voice behind the piano; needs a large model download, not done |
+| facebookresearch/demucs | Source separation (a 6-source model has a piano stem, "a lot of bleeding"); repo archived | MIT | Not tried: there is no recording with a real backing track and a known answer to test it on, and a synthetic backing would not be honest evidence. Revisit if videos with music behind the piano turn out to be common |
 | deezer/spleeter | Separation, lower reported quality than Demucs | MIT | Skip |
 | mir_eval | Standard scoring code | MIT | Dev only; our scripts compute the same numbers directly |
 | MTG/essentia | C++ audio analysis | AGPL-3.0 | Skip: licence |
@@ -43,7 +43,7 @@ Facts come from each README; "unsure" means the page did not say.
 ## Browser audio and MIDI
 | Repo | What | Licence | Verdict |
 |---|---|---|---|
-| Signalsmith-Audio/signalsmith-stretch | Pitch and time shifting, WASM/AudioWorklet build, multi-octave pitch shift | MIT | **Best route for real transposing of a video's own sound** (today it switches to the piano sound). Needs adding a library file; not done |
+| Signalsmith-Audio/signalsmith-stretch | Pitch and time shifting, WASM/AudioWorklet build, multi-octave pitch shift | MIT | **Adopted** (`vendor/signalsmith-stretch.mjs`, loaded on demand): transposing now shifts a video's own sound |
 | urtzurd/html-audio | Small granular pitch shifter | MIT | Learn from; quality unverified |
 | Tonejs/Tone.js | Web Audio framework (PitchShift docs not read) | MIT | Skip |
 | Tonejs/Midi | MIDI read/write in the browser | MIT | Possible for MIDI export; our own writer works |
@@ -61,6 +61,20 @@ Test data: three MAESTRO performances (not in the model's training set) with rea
 * **Tempo detector** (`falling-note-proto/tempo.js`, the Auto button next to Tap): lays a beat grid over the note starts and scores each tempo against what random timing would score. On 300 made-up songs with known tempo it is right within 3% on 89.7% (the old fixed 100 BPM: 3.3%). **On real expressive piano it is not reliable**: three MAESTRO performances scored a "fit" of 0.02-0.05, below even random note timing (0.11-0.18) and far below steady playing (0.27-0.49), so the button refuses (fit under 0.2) and tells the user to Tap. A first version tuned only on made-up songs returned 190 BPM (the top of its range) on all three real pieces; the made-up test had hidden that. No true tempo exists for the real pieces, so only the made-up songs measure accuracy.
 * **Noise reduction before transcription** (`piano_worker._denoise`, runs only when a recording measures as noisy): on the phone-style copies, F1 went 91.1% to 91.7% overall (false notes 373 to 322) and on the Schubert piece 92.4% to 93.7%. A small gain, not a fix. It is skipped for clean recordings (measured noisiness 0.0014-0.0018 clean, 0.0035-0.0037 phone-style, cut-off 0.0026) because it was not tested on clean audio. Real phone clips will sit somewhere in between; the cut-off is a guess there.
 
-## Not tried, and what it would take
-* Transkun, Demucs, beat_this, signalsmith-stretch: each is a pip/npm install plus a model or library download. Nobody was there to approve those, so they are untested. Transkun and Demucs are the two most likely to help on noisy phone audio; test them on the degraded clips with `eval/` before adopting.
+## Transkun and signalsmith-stretch: tested after approval
+**Transkun** (installed from PyPI into the helper's environment; run through the helper on 16 kHz mono clips, the way the app sends audio; 3 held-out MAESTRO pieces, 4290+ real notes; scripts: `eval/eval_engines.py`):
+
+| Engine | Audio | F1 | False notes | Missed | Key hold within 150 ms of real | Mean bar |
+|---|---|---|---|---|---|---|
+| ByteDance + our key-hold guess | clean | 98.3% | 59 | 93 | 88.5% | 0.16 s |
+| ByteDance + our key-hold guess | phone-style | 91.1% | 373 | 403 | 85.3% | 0.18 s |
+| **Transkun** | clean | **99.2%** | 20 | 46 | **94.8%** | 0.14 s |
+| **Transkun** | phone-style | **98.4%** | 31 | 105 | **93.6%** | 0.15 s |
+
+It is better on every measure, and by a wide margin on noisy audio, with no key-hold guessing needed (its lengths are the key holds). It takes about 0.7x real time on this CPU (113 s of music in 76 s), like the other model. So the helper now prefers Transkun and falls back to the ByteDance model if Transkun is not installed or fails. The noise-reduction step is not used with Transkun (it was not tested with it and the results above were already good). Caveats: the pretrained weights' licence is not stated (fine for personal use, check before sharing the app), three classical pieces is a small sample, and the phone-style copies are simulated, not real Instagram audio.
+
+**signalsmith-stretch** (v1.3.2, MIT): in the app, a 440 Hz "video sound" transposed by -3, +2 and +7 semitones came out at 369.1, 495.1 and 659.2 Hz (expected 370.0, 493.9, 659.3), and at 0 the shifter switches off. It delays the sound by 0.12 s, so the video runs 0.12 s ahead while shifted to keep the sound on the notes. Only pitch was measured, not how it sounds on real music.
+
+## Still not tried
+* Demucs and beat_this (see the table for why). Anything that watches the hands: only works for top-down camera views (V2N), so it can't be the base.
 * Anything that watches the hands: only works for top-down camera views (V2N), so it can't be the base.
