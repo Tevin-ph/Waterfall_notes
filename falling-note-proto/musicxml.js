@@ -1,5 +1,5 @@
 // Turns the song's notes into written music (MusicXML) so the "View sheet music" page can draw them. It is an approximation, and says so on the page:
-//  * time is cut into sixteenths of a bar's beat using the song's tempo and first beat (set them in Settings: Auto or Tap), so a steady performance
+//  * time is cut into sixteenths of an eighth of the song's beat (32nds) using its tempo and first beat (set them in Settings: Auto or Tap), so a steady performance
 //    reads cleanly and a loose one reads messy;
 //  * each hand is one voice (right = treble staff, left = bass staff): notes that start together are a chord, and a chord lasts until the next
 //    chord in that hand (or its own held length, whichever is shorter), then a rest, so notes held under moving ones are shown short;
@@ -28,29 +28,29 @@ export function guessKey(notes) {
   return { fifths: MAJOR_FIFTHS[relMajor], minor: best.minor, tonic: best.tonic };
 }
 
-const NOTE_TYPES = { 16: ["whole", 0], 12: ["half", 1], 8: ["half", 0], 6: ["quarter", 1], 4: ["quarter", 0], 3: ["eighth", 1], 2: ["eighth", 0], 1: ["16th", 0] };
-const PIECES = [16, 12, 8, 6, 4, 3, 2, 1];
+const NOTE_TYPES = { 32: ["whole", 0], 24: ["half", 1], 16: ["half", 0], 12: ["quarter", 1], 8: ["quarter", 0], 6: ["eighth", 1], 4: ["eighth", 0], 3: ["16th", 1], 2: ["16th", 0], 1: ["32nd", 0] };     // keyed by length in 32nds
+const PIECES = [32, 24, 16, 12, 8, 6, 4, 3, 2, 1];
 const splitLength = len => { const out = []; while (len > 0) { const p = PIECES.find(x => x <= len); out.push(p); len -= p; } return out; };   // 5 -> 4+1, 7 -> 6+1 ...
 
 // notes: [{m,t,d,kd?,h}]. opts: {bpm, off, beats, title}. Returns {measures: [{staff1: [...], staff2: [...]}], key, header(opts), xml(from, to)}.
 export function buildScore(notes, opts = {}) {
-  const bpm = opts.bpm || 100, beatSec = 60 / bpm, beats = opts.beats || 4, bar = beats * 4;       // a bar in sixteenths
+  const bpm = opts.bpm || 100, beatSec = 60 / bpm, beats = opts.beats || 4, bar = beats * 8;       // a bar in 32nds
   const usable = notes.filter(n => n.m >= 21 && n.m <= 108);
   if (!usable.length) return null;
   const first = Math.min(...usable.map(n => n.t)), off = opts.off != null ? opts.off : first;
   const barSec = beats * beatSec, origin = off - Math.ceil(Math.max(0, off - first) / barSec) * barSec;
   const key = guessKey(usable), spell = key.fifths >= 0 ? SHARP_SPELL : FLAT_SPELL, keyAlter = KEY_ALTER(key.fifths);
-  const unit = beatSec / 4;
-  // quantised events per staff: {start, len, midis[]}
-  const staffs = [[], []];
-  for (const n of usable) {
-    const held = Math.max(0.05, n.kd != null ? n.kd : n.d), s = Math.max(0, Math.round((n.t - origin) / unit)), len = Math.max(1, Math.round(held / unit));
-    staffs[n.h === 1 ? 1 : 0].push({ s, len, m: n.m });
-  }
-  const perStaff = staffs.map(list => {
-    list.sort((a, b) => a.s - b.s || a.m - b.m);
-    const chords = [];
-    for (const x of list) { const c = chords[chords.length - 1]; if (c && c.s === x.s) { if (!c.ms.includes(x.m)) c.ms.push(x.m); c.len = Math.max(c.len, x.len); } else chords.push({ s: x.s, len: x.len, ms: [x.m] }); }
+  const unit = beatSec / 8;
+  // quantised events per staff: {s (cell), len, ms[]}. Notes that start within 35 ms of each other are one chord; any later note gets its own cell even when
+  // rounding would put it on the same one, so notes played separately are never turned into a chord.
+  const perStaff = [[], []].map((_, si) => {
+    const list = usable.filter(n => (n.h === 1 ? 1 : 0) === si).sort((a, b) => a.t - b.t || a.m - b.m), chords = [];
+    let lastCell = -1, groupT = -9;
+    for (const n of list) {
+      const held = Math.max(0.05, n.kd != null ? n.kd : n.d), len = Math.max(1, Math.round(held / unit)), cell = Math.max(0, Math.round((n.t - origin) / unit));
+      if (chords.length && n.t - groupT <= 0.035) { const c = chords[chords.length - 1]; if (!c.ms.includes(n.m)) c.ms.push(n.m); c.len = Math.max(c.len, len); continue; }
+      const s = Math.max(cell, lastCell + 1); chords.push({ s, len, ms: [n.m] }); lastCell = s; groupT = n.t;
+    }
     for (let i = 0; i < chords.length; i++) { const next = chords[i + 1]; if (next) chords[i].len = Math.min(chords[i].len, next.s - chords[i].s); }
     return chords;
   });
@@ -78,7 +78,7 @@ export function buildScore(notes, opts = {}) {
   const alterOf = m => { const [step, alter] = spell[m % 12]; return { step, alter, oct: Math.floor(m / 12) - 1 }; };
   function measureXml(i, withAttrs) {
     let x = `<measure number="${i + 1}">`;
-    if (withAttrs) x += `<attributes><divisions>4</divisions><key><fifths>${key.fifths}</fifths></key><time><beats>${beats}</beats><beat-type>4</beat-type></time><staves>2</staves><clef number="1"><sign>G</sign><line>2</line></clef><clef number="2"><sign>F</sign><line>4</line></clef></attributes>`;
+    if (withAttrs) x += `<attributes><divisions>8</divisions><key><fifths>${key.fifths}</fifths></key><time><beats>${beats}</beats><beat-type>4</beat-type></time><staves>2</staves><clef number="1"><sign>G</sign><line>2</line></clef><clef number="2"><sign>F</sign><line>4</line></clef></attributes>`;
     if (i === 0) x += `<direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>${Math.round(bpm)}</per-minute></metronome></direction-type><sound tempo="${Math.round(bpm)}"/></direction>`;
     for (let si = 0; si < 2; si++) {
       const staff = si + 1, acc = {};            // accidentals already shown in this bar for a step+octave

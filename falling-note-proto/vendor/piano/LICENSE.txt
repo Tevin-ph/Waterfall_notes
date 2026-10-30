@@ -1,0 +1,3 @@
+Piano samples: "Salamander Grand Piano" (Yamaha C5 grand) recorded by Alexander Holm, licensed CC BY 3.0 (https://creativecommons.org/licenses/by/3.0/).
+These 30 mp3 files are the set distributed in https://github.com/Tonejs/audio (salamander/). They are used by the app to play notes as a real grand piano.
+Credit to Alexander Holm is required when this app is shared.
