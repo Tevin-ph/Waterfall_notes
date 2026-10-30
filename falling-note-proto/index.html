@@ -144,6 +144,11 @@
   #pVideo { position:absolute; top:12px; right:12px; width:min(34%, 420px); aspect-ratio:16/9; max-height:45%; object-fit:contain; background:#000; border-radius:12px; border:1px solid var(--line2); z-index:2; box-shadow:0 10px 30px rgba(0,0,0,.5); }
   #pVideo[hidden] { display:none; }
   #countIn { position:absolute; left:0; right:0; top:28%; text-align:center; font-size:96px; font-weight:600; color:rgba(255,255,255,.88); pointer-events:none; text-shadow:0 4px 30px rgba(0,0,0,.6); }
+  #pedalInd { position:absolute; left:12px; top:12px; z-index:2; display:flex; align-items:center; gap:7px; padding:5px 11px; border-radius:999px; font-size:12px; color:#8a8a93; background:rgba(10,10,14,.7); border:1px solid var(--line2); pointer-events:none; transition:color .08s, background .08s, border-color .08s; }
+  #pedalInd i { width:8px; height:8px; border-radius:50%; background:#3a3a44; }
+  #pedalInd.down { color:#fff; border-color:#6d7bff; background:rgba(60,70,170,.55); } #pedalInd.down i { background:#8f9bff; box-shadow:0 0 8px #8f9bff; }
+  #pedalInd.guess { border-style:dashed; }
+  #pedalInd[hidden] { display:none; }
   #hint { position:absolute; left:0; right:0; top:40%; text-align:center; color:#8a8a93; pointer-events:none; font-size:16px; padding:0 20px; }
   #dock { display:flex; flex-wrap:wrap; align-items:center; gap:10px 14px; padding:6px 22px 16px; }
   #dock #play { background:var(--ink); color:#000; border-color:var(--ink); padding:9px 20px; font-weight:500; }
@@ -391,7 +396,7 @@
           </div></div>
       </div>
       <div id="layers" hidden></div>
-      <div id="stage"><canvas id="cv"></canvas><video id="pVideo" playsinline preload="auto" hidden></video><div id="countIn" aria-hidden="true"></div><div id="hint">Open a song from Library or Create</div></div>
+      <div id="stage"><canvas id="cv"></canvas><video id="pVideo" playsinline preload="auto" hidden></video><div id="pedalInd" hidden><i></i><span>Pedal</span></div><div id="countIn" aria-hidden="true"></div><div id="hint">Open a song from Library or Create</div></div>
       <div id="dock">
         <button id="play" title="Space">&#9654; Play</button>
         <button id="restart" title="Home">&#8634;</button>
@@ -429,6 +434,7 @@
               <label class="srow"><span>Glow on notes</span><select id="glowSel"><option value="0">None</option><option value="1" selected>A little</option><option value="2">Full glow</option></select></label>
               <label class="srow"><span>Camera</span><select id="viewMode"><option value="flat">Straight down (notes fall vertically)</option><option value="tilt">3D tilt</option></select></label>
               <label class="srow"><span>Pedal</span><select id="pedalMode"><option value="hide">Hide pedal sustain (only held keys)</option><option value="ring">Show pedal sustain faintly</option><option value="full">Full length (key + pedal)</option></select></label>
+              <label class="srow"><span>Pedal in the sound</span><select id="pedalSound" title="Whether notes keep ringing while the sustain pedal is down (Piano sound only)"><option value="real">Sustain (when the song has a pedal)</option><option value="auto">Sustain, and guess one if missing (rough)</option><option value="off">Off: notes stop when the key comes up</option></select></label>
               <label class="srow"><span>Piano view</span><select id="zoom"><option value="auto">Zoom to the song</option><option value="full">Full piano</option></select></label>
               <div class="toggles">
                 <button id="letters" class="on" title="Show note names on the bars">Letters</button>
@@ -497,6 +503,7 @@ function parseMidi(buf) {
   if (div & 0x8000) throw new Error("SMPTE timing is not supported");
   const tempos = [{ tick: 0, uspq: 500000 }];
   const raw = []; // {m,on,tick,vel,trk}
+  const pedalEv = []; // {tick, down}
   const names = [];
   for (let tr = 0; tr < ntrk; tr++) {
     if (p + 8 > dv.byteLength) break;
@@ -522,6 +529,7 @@ function parseMidi(buf) {
         const ch = status & 0x0f;
         if (hi === 0x90 && c > 0) raw.push({ m: a, on: true, tick, vel: c, trk: tr, ch });
         else if (hi === 0x80 || (hi === 0x90 && c === 0)) raw.push({ m: a, on: false, tick, trk: tr, ch });
+        else if (hi === 0xb0 && a === 64) pedalEv.push({ tick, down: c >= 64 });          // sustain pedal
       }
     }
     p = end;
@@ -552,7 +560,11 @@ function parseMidi(buf) {
   } else for (const n of notes) n.h = n.m < 60 ? 1 : 0;
   notes.sort((a, b) => a.t - b.t);
   const dur = Math.max(...notes.map(n => n.t + n.d)) + 1;
-  return { notes, dur, bpm: Math.round(60e6 / tempos[0].uspq), name: names[0] || "MIDI file", byTrack: trks.length >= 2 };
+  const pedal = []; let downAt = null;       // pedal events -> [{t, d}] spans (several tracks can each carry pedal events: the first press to the last lift wins)
+  pedalEv.sort((a, b) => a.tick - b.tick);
+  for (const e of pedalEv) { if (e.down && downAt == null) downAt = toSec(e.tick); else if (!e.down && downAt != null) { pedal.push({ t: downAt, d: Math.max(0.05, toSec(e.tick) - downAt) }); downAt = null; } }
+  if (downAt != null) pedal.push({ t: downAt, d: Math.max(0.05, dur - downAt) });
+  return { notes, dur, pedal, bpm: Math.round(60e6 / tempos[0].uspq), name: names[0] || "MIDI file", byTrack: trks.length >= 2 };
 }
 
 // ---------- MusicXML -> notes (what sheet-music scanning produces) ----------
@@ -731,16 +743,66 @@ function setSpeed(v) {
 
 const allowed = n => S.hands === "both" || (S.hands === "right" ? n.h === 0 : n.h === 1);
 
+// ---------- Sustain pedal in the sound ----------
+// The note bars show how long each key is held; the pedal keeps strings ringing after that. A song's pedal is a list of [down, up] spans (read by the piano
+// model, or from a MIDI file's pedal events). With no pedal data, "auto" guesses one: lifted and pressed again at each change of bass note, at most 2.5 s.
+// Measured on two MAESTRO pieces against their real pedal (mean error in how long a note rings): Debussy 0.50 s keys only -> 0.41 s guessed; Scarlatti
+// (hardly any pedal) 0.08 s -> 0.25 s guessed. So the guess is opt-in: it helps pedal-heavy music and hurts pedal-light music.
+// A note whose key comes up while the pedal is down rings until the pedal lifts. "Off" plays every note for its key length only.
+try { const v = localStorage.getItem("wn.pedalSound"); S.pedalSound = v === "auto" || v === "off" ? v : "real"; } catch (e) { S.pedalSound = "real"; }
+const toSpans = list => {                       // [{t, d}] -> sorted, merged [[down, up]]
+  const a = (list || []).map(p => [p.t, p.t + p.d]).sort((x, y) => x[0] - y[0]), out = [];
+  for (const s of a) { const l = out[out.length - 1]; if (l && s[0] <= l[1]) l[1] = Math.max(l[1], s[1]); else out.push(s); }
+  return out;
+};
+function guessSpans(notes) {
+  const low = [];                                 // the lowest note of each group that starts together, in the left hand (or below middle C if no hands are known)
+  let g = null;
+  for (const n of notes) {
+    if (!(n.h === 1 || n.m < 55)) continue;
+    if (g && n.t - g.t < 0.05) { if (n.m < g.m) g.m = n.m; } else { g = { t: n.t, m: n.m }; low.push(g); }
+  }
+  const out = [], changes = low.filter((b, i) => i === 0 || b.m % 12 !== low[i - 1].m % 12);
+  for (let i = 0; i < changes.length; i++) {
+    const a = changes[i].t + 0.04, b = Math.min(changes[i + 1] ? changes[i + 1].t - 0.02 : Infinity, a + 2.5);
+    if (b - a >= 0.3) out.push([a, b]);
+  }
+  return out;
+}
+const pedalCache = { notes: null, base: null, mode: "", spans: [], guessed: false };
+function pedalSpans() {                           // the spans in use right now: [] when off
+  const mode = S.pedalSound;
+  if (mode === "off") return [];
+  if (pedalCache.notes === song.notes && pedalCache.base === song.pedal && pedalCache.mode === mode) return pedalCache.spans;
+  let spans = toSpans(song.pedal), guessed = false;
+  if (!spans.length && mode === "auto" && song.notes.length) { spans = guessSpans(song.notes); guessed = true; }
+  Object.assign(pedalCache, { notes: song.notes, base: song.pedal, mode, spans, guessed });
+  return spans;
+}
+function lastSpan(spans, t) { let lo = 0, hi = spans.length; while (lo < hi) { const mid = (lo + hi) >> 1; if (spans[mid][0] <= t) lo = mid + 1; else hi = mid; } return spans[lo - 1]; }
+function ringLen(n, spans) {                      // how long the note sounds: until its key comes up, or until the pedal lifts if that is later
+  if (!spans.length || n.kd != null) return n.d;  // (a note with kd already carries its ring in d)
+  const s = lastSpan(spans, n.t + n.d);
+  return s && s[1] > n.t + n.d ? Math.min(s[1] - n.t, n.d + 8) : n.d;
+}
+function updatePedalInd(p) {
+  const el = $("pedalInd"), spans = pedalSpans(), s = spans.length ? lastSpan(spans, p) : null, down = !!s && p < s[1];
+  el.hidden = !spans.length; if (!spans.length) return;
+  el.classList.toggle("down", down); el.classList.toggle("guess", pedalCache.guessed);
+  const label = pedalCache.guessed ? "Pedal (guess)" : "Pedal"; if (el.lastChild.textContent !== label) el.lastChild.textContent = label;
+}
+
 function scheduler() {
   if (!S.playing) return;
   const p = pos();
   if (S.loopOn && S.loopA != null && S.loopB != null && S.loopB > S.loopA && p >= S.loopB) { seek(S.loopA); return; }
   if (p >= song.dur) { if (rec.on) { stopRec(); return; } S.anchorPos = song.dur; S.playing = false; syncUI(); return; }
   const horizon = p + LOOKAHEAD * S.speed;
+  const spans = pedalSpans();
   while (S.nextIdx < song.notes.length && song.notes[S.nextIdx].t < horizon) {
     const n = song.notes[S.nextIdx++];
     const when = S.anchorCtx + (n.t - S.anchorPos) / S.speed;
-    if (S.synth && allowed(n) && when >= ac.currentTime - 0.15 && keyGeo[n.m + S.transpose]) playNote(n.m + S.transpose, n.v, Math.max(when, ac.currentTime), n.d / S.speed);
+    if (S.synth && allowed(n) && when >= ac.currentTime - 0.15 && keyGeo[n.m + S.transpose]) playNote(n.m + S.transpose, n.v, Math.max(when, ac.currentTime), ringLen(n, spans) / S.speed);
   }
   while (beatOff() + S.nextBeat * beatLen() < horizon) {
     const t = beatOff() + S.nextBeat * beatLen(), when = S.anchorCtx + (t - S.anchorPos) / S.speed;
@@ -820,7 +882,7 @@ function draw() {
   watchFrames();
   if (!W) return;
   const p = pos();
-  videoSync(p);
+  videoSync(p); updatePedalInd(p);
   if (gl3d) {
     gl3d.render({ p, notes: song.notes, startIdx: Math.max(0, firstIdx(p - 12)), transpose: S.transpose, allowed, letters: S.letters, look: S.look,
                   live: liveKeys, beatLen: beatLen(), beatOff: beatOff(), bar: S.beats, loopA: S.loopA, loopB: S.loopB, lookAhead: LOOK_AHEAD_SEC, range: viewRange(), view: S.view, pedal: S.pedal, showHands: S.showHands });
@@ -1081,7 +1143,7 @@ function loadSong(s) {
   if (rec.on) stopRec();
   pause();
   song = { notes: [], base: s.base || s.notes || [], layers: (s.layers || []).map(L => ({ ...L })), dur: 0, bpm: s.bpm || 100, off: s.off || 0, vOffset: s.vOffset || 0, name: s.name || "Untitled",
-           minDur: 0, id: s.id || null, created: s.created || null, video: s.video || null };
+           minDur: 0, id: s.id || null, created: s.created || null, video: s.video || null, pedal: s.pedal || [] };
   rec.count = song.layers.reduce((m, L) => Math.max(m, L.id), 0);
   if (!song.off) {         // the metronome's first beat is the first note, unless a tempo was set by hand (Tap/Auto)
     let first = Infinity; for (const n of song.base) if (n.t < first) first = n.t; for (const L of song.layers) for (const n of L.notes) if (n.t < first) first = n.t;
@@ -1192,8 +1254,11 @@ async function pianoNotes(mono16k) {
     dock("Sending the sound to the piano model…", null);
     const r = await fetch("/transcribe-piano", { method: "POST", body: encodeWav(mono16k, 16000) });
     if (!r.ok) { console.warn("piano model:", await r.text()); return null; }
-    const notes = (await r.json()).notes || [];
-    return notes.length ? notes.map(n => ({ ...n, h: handOfAuto(n.m) })).sort((a, b) => a.t - b.t) : null;
+    const j = await r.json(), notes = j.notes || [];
+    if (!notes.length) return null;
+    const out = notes.map(n => ({ ...n, h: handOfAuto(n.m) })).sort((a, b) => a.t - b.t);
+    out.pedal = j.pedal || [];                // when the model heard the sustain pedal down: [{t, d}]
+    return out;
   } catch (e) { console.warn("piano model unavailable:", e); return null; }
   finally { clearInterval(tick); }
 }
@@ -1278,9 +1343,11 @@ async function audioToNotes(f) {
       .map(n => ({ ...n, h: handOfAuto(n.m) })).sort((a, b) => a.t - b.t);
     }
     if (!good.length) throw new Error("No notes were detected. Piano or other clear single instruments work best.");
+    const pedal = (good.pedal || []).map(p => ({ ...p }));
     await splitHands(good);
     const cut = trimLead(good);
-    dock(cut ? "Done (skipped " + cut.toFixed(1) + " s of silence at the start)" : "Done", 1); await importSong({ notes: good, bpm: 100, name: f.name.replace(/\.[^.]+$/, ""), video: isVid ? f : null, vOffset: cut }, true);   // a video is kept and plays with the notes
+    for (const p of pedal) p.t = Math.round((p.t - cut) * 1000) / 1000;       // the pedal moves with the notes when the silence is cut
+    dock(cut ? "Done (skipped " + cut.toFixed(1) + " s of silence at the start)" : "Done", 1); await importSong({ notes: good, bpm: 100, name: f.name.replace(/\.[^.]+$/, ""), video: isVid ? f : null, vOffset: cut, pedal }, true);   // a video is kept and plays with the notes
     setTimeout(dockHide, 600);
   } catch (e) { dockHide(); say("Could not turn that into notes: " + e.message, true); }
 }
@@ -1315,7 +1382,7 @@ async function saveCurrent() {
   song.id = song.id || uid(); song.created = song.created || Date.now();
   let end = 0, count = song.base.length; for (const n of song.base) end = Math.max(end, n.t + n.d);
   for (const L of song.layers) { count += L.notes.length; for (const n of L.notes) end = Math.max(end, n.t + n.d); }
-  await libPut({ id: song.id, name: song.name, created: song.created, updated: Date.now(), bpm: song.bpm, off: song.off || 0, vOffset: song.vOffset || 0, base: song.base,
+  await libPut({ id: song.id, name: song.name, created: song.created, updated: Date.now(), bpm: song.bpm, off: song.off || 0, vOffset: song.vOffset || 0, pedal: song.pedal || [], base: song.base,
                  layers: JSON.parse(JSON.stringify(song.layers)), transpose: S.transpose, count, dur: end,
                  video: song.video && song.video.size <= 250 * 1048576 ? song.video : null });
   return true;
@@ -1397,7 +1464,8 @@ $("exAudio").onclick = async () => {
     dock("Making the audio file…", null);
     await loadPiano(); if (!piano.ready) throw new Error("the piano sounds couldn't be loaded");
     const sr = 44100, off = new OfflineAudioContext(2, Math.ceil((song.dur + 3) * sr), sr), bus = pianoBus(off);
-    for (const n of song.notes) { const m = n.m + S.transpose; if (m >= 21 && m <= 108) playSample(off, bus, m, n.v, n.t, n.d); }
+    const spans = pedalSpans();
+    for (const n of song.notes) { const m = n.m + S.transpose; if (m >= 21 && m <= 108) playSample(off, bus, m, n.v, n.t, ringLen(n, spans)); }
     download(wavFromBuffer(await off.startRendering()), fileName("wav")); dock("Audio saved", 1); setTimeout(dockHide, 2000);
   } catch (e) { dockHide(); alert("Couldn't make the audio file: " + (e.message || e)); }
 };
@@ -1756,6 +1824,8 @@ $("look").onchange = e => { S.look = e.target.value; };
 $("zoom").onchange = e => { S.zoom = e.target.value; };
 $("viewMode").onchange = e => { S.view = e.target.value; };
 $("pedalMode").onchange = e => { S.pedal = e.target.value; };
+$("pedalSound").value = S.pedalSound;
+$("pedalSound").onchange = e => { S.pedalSound = e.target.value; try { localStorage.setItem("wn.pedalSound", S.pedalSound); } catch (err) {} };       // applies to notes that start from now on
 
 // ---- tempo, metronome, colors ----
 function showSpeed() {            // keeps the dock's speed menu and the Settings slider in step
