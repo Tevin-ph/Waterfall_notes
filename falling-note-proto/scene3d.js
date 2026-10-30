@@ -220,6 +220,52 @@ export function createScene(stage) {
     }
   };
 
+  // ---------- hands: two simple hands that play the song (optional) ----------
+  // Each finger goes to a key that is sounding, or to the chord coming next, and presses down while it sounds. Which finger plays which
+  // key is a simple guess (thumb on the inside), not real fingering.
+  const SKIN = 0xe2b394, UP = new T.Vector3(0, 1, 0), tmpA = new T.Vector3(), tmpB = new T.Vector3(), tmpD = new T.Vector3();
+  const cylGeo = new T.CylinderGeometry(0.26, 0.3, 1, 12), tipGeo = new T.SphereGeometry(0.28, 14, 12);
+  const PATTERN = { 1: [1], 2: [0, 2], 3: [0, 2, 4], 4: [0, 1, 2, 4], 5: [0, 1, 2, 3, 4] };       // which fingers play 1..5 keys (0 = thumb)
+  const handObjs = [0, 1].map(h => {
+    const g = new T.Group(); g.visible = false; scene.add(g);
+    const skin = new T.MeshStandardMaterial({ color: SKIN, roughness: 0.55, transparent: true, opacity: 0.9, depthWrite: false });
+    const palm = new T.Mesh(new T.RoundedBoxGeometry(3.7, 0.5, 1.9, 3, 0.22), skin), arm = new T.Mesh(new T.RoundedBoxGeometry(2.2, 0.55, 7, 3, 0.22), skin);
+    g.add(palm, arm);
+    const fingers = [0, 1, 2, 3, 4].map(() => {
+      const seg = new T.Mesh(cylGeo, skin), tm = skin.clone(), tip = new T.Mesh(tipGeo, tm);
+      g.add(seg, tip); return { seg, tip, tm, x: 0, y: 1, z: 2 };
+    });
+    return { g, palm, arm, fingers, cx: h ? -4 : 4, ready: false };
+  });
+  function updateHands(dt, act, next) {
+    const k = 1 - Math.exp(-dt * 12);
+    handObjs.forEach((o, h) => {
+      const pressing = act[h].length > 0;
+      let ks = (pressing ? act[h] : next[h].ks).slice().sort((a, b) => a - b);
+      if (ks.length > 5) ks = [0, 1, 2, 3, 4].map(i => ks[Math.round(i * (ks.length - 1) / 4)]);
+      if (h === 1) ks.reverse();                                            // left hand: thumb on the highest key
+      let tx = o.cx; if (ks.length) tx = ks.reduce((a, m) => a + keys[m].x, 0) / ks.length;
+      if (!o.ready) { o.cx = tx; o.ready = true; }
+      o.cx += (tx - o.cx) * k;
+      const slots = PATTERN[ks.length] || [], assigned = {}; slots.forEach((f, i) => { assigned[f] = ks[i]; });
+      const yK = pressing ? 1.05 : 1.25, zK = 3.1;
+      o.fingers.forEach((f, i) => {
+        const slot = (h ? 2 - i : i - 2) * 0.9, m = assigned[i], key = m != null ? keys[m] : null, down = key && pressing;
+        const tX = key ? key.x : o.cx + slot, tY = key ? (down ? (key.black ? 0.8 : 0.4) : 1.0) : 0.95, tZ = key ? (key.black ? 1.1 : 1.5) : (i === 0 ? 2.4 : 1.9);
+        f.x += (tX - f.x) * k; f.y += (tY - f.y) * k; f.z += (tZ - f.z) * k;
+        tmpA.set(o.cx + slot * 0.95, yK, i === 0 ? zK + 0.6 : zK);                  // knuckle
+        tmpB.set(f.x, f.y, f.z);
+        tmpD.subVectors(tmpB, tmpA); const len = Math.max(0.05, tmpD.length());
+        f.seg.position.copy(tmpA).addScaledVector(tmpD, 0.5); f.seg.quaternion.setFromUnitVectors(UP, tmpD.multiplyScalar(1 / len)); f.seg.scale.set(1, len, 1);
+        f.tip.position.copy(tmpB);
+        if (down) { f.tm.emissive.setHex(HAND[h]); f.tm.emissiveIntensity = 0.7; } else { f.tm.emissive.setHex(0); f.tm.emissiveIntensity = 1; }
+      });
+      o.palm.position.set(o.cx, yK - 0.05, zK + 1.15); o.arm.position.set(o.cx, yK + 0.05, zK + 5);
+    });
+    const gap = handObjs[0].cx - handObjs[1].cx;                            // keep the hands from sitting on top of each other
+    if (gap < 3.8) { const d = (3.8 - gap) / 2; handObjs[0].cx += d; handObjs[1].cx -= d; }
+  }
+
   let last = performance.now();
   function render(s) {
     const { p, notes, startIdx, transpose, allowed, letters, look, live, beatLen, loopA, loopB, lookAhead } = s;
@@ -232,6 +278,7 @@ export function createScene(stage) {
       view.cx += (view.tcx - view.cx) * 0.12; view.half += (view.thalf - view.half) * 0.12; placeCamera();
     }
     const active = new Map(), spec = look === "spectrum";
+    const hAct = [[], []], hNext = [{ t: 0, ks: [] }, { t: 0, ks: [] }];       // for the hands: keys sounding now / the chord coming next
     let used = 0;
     for (let i = startIdx; i < notes.length; i++) {
       const n = notes[i]; if (n.t - p > lookAhead) break;
@@ -239,6 +286,11 @@ export function createScene(stage) {
       // With the pedal view on, a note that rings on after its key was let go is two parts: the held key (solid) and the pedal ring (faint).
       const split = s.pedal && n.kd != null && n.kd < n.d - 0.08, end = split ? n.t + n.kd : full;
       const pm = n.m + transpose, k = keys[pm]; if (!k) continue;
+      if (s.showHands) {
+        const hh = n.h === 1 ? 1 : 0;
+        if (n.t <= p && end >= p) hAct[hh].push(pm);
+        else if (n.t > p && n.t - p < 0.4) { const nx = hNext[hh]; if (!nx.ks.length || n.t < nx.t - 0.001) { nx.t = n.t; nx.ks = [pm]; } else if (n.t < nx.t + 0.1) nx.ks.push(pm); }
+      }
       const dim = !allowed(n), w = k.black ? 0.5 : 0.84;
       const near = -Math.max(0, n.t - p) * zps, far = -Math.min(Math.max(end, p) - p, lookAhead) * zps;
       const { g, q } = noteGeo(w, Math.max(0.3, near - far)), zc = near - q / 2;
@@ -262,6 +314,8 @@ export function createScene(stage) {
     }
     for (let i = used; i < pool.length; i++) { const e = pool[i]; e.box.visible = e.stripe.visible = e.label.visible = e.tail.visible = false; }
     for (const [m, kk] of live) active.set(m, kk.h);
+    for (const o of handObjs) o.g.visible = !!s.showHands;
+    if (s.showHands) updateHands(dt, hAct, hNext);
 
     for (const m in keys) setKey(keys[m], active.has(+m) ? active.get(+m) : -1);
     let gi = 0;

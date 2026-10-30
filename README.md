@@ -46,5 +46,5 @@ The Practice scene is real 3D ([three.js](https://threejs.org) with a bloom glow
 - `falling-note-proto/scene3d.js` the 3D scene
 - `falling-note-proto/vendor/` bundled libraries (Basic Pitch + model, three.js, icons, font). Rebuild with `build-bp/` (`entry.js`, `entry3d.js`, `make-icons.mjs`)
 - `falling-note-proto/scan_server.py` local helper: serves the app, runs Audiveris, fetches file links
-- `build-bp/` how `vendor/basicpitch.js` was bundled (`npm install && npx esbuild entry.js --bundle --format=esm --minify --outfile=../falling-note-proto/vendor/basicpitch.js`)
+- `build-bp/` how `vendor/basicpitch.js` was bundled (`npm install && npx esbuild entry.js --bundle --format=esm --minify --outfile=../falling-note-proto/vendor/basicpitch.js`). The 3D scene's `vendor/three.js` is built the same way from `entry3d.js`, which lists the three.js pieces the scene may use: add a new one there (and rebuild) before using it in `scene3d.js`.
 - `falling-note-spec.md` feature and architecture notes
