@@ -56,6 +56,12 @@
   .chipb svg { width:15px; height:15px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; }
   .rights { display:flex; align-items:center; gap:10px; margin-top:16px; color:var(--dim); cursor:pointer; width:fit-content; }
   .rights input { width:16px; height:16px; accent-color:var(--accent); }
+  /* shown when something is pressed before the box is ticked: impossible to miss, and it stays until the box is ticked */
+  .rights.need { color:var(--ink); padding:9px 12px; margin-left:-12px; border-radius:10px; background:rgba(229,72,77,.14); outline:2px solid var(--rec); animation:rightsNudge .45s; }
+  #rightsMsg { margin-top:10px; padding:10px 14px; border-radius:10px; background:rgba(229,72,77,.14); border:1px solid var(--rec); color:#ffc9cb; max-width:620px; }
+  #rightsMsg[hidden] { display:none; }
+  @keyframes rightsNudge { 0%,100% { transform:translateX(0); } 25% { transform:translateX(-7px); } 50% { transform:translateX(6px); } 75% { transform:translateX(-4px); } }
+  @media (prefers-reduced-motion: reduce) { .rights.need { animation:none; } }
   #embedBox { margin-top:22px; border:1px solid var(--line2); border-radius:14px; background:var(--panel); overflow:hidden; }
   #embedBox[hidden] { display:none; }
   .embedHead { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid var(--line); font-weight:500; }
@@ -235,6 +241,7 @@
         <label class="act" style="cursor:pointer">Choose File<input id="anyFile" type="file" accept=".mid,.midi,.pdf,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.xml,.musicxml,audio/*,video/*,image/*"></label>
       </div>
       <label class="rights"><input type="checkbox" id="rights"> I own the rights to this media or have permission to use it</label>
+      <div id="rightsMsg" role="alert" hidden>Tick the box above first, to confirm you own this media or have permission to use it. Then press the button again.</div>
       <label class="rights sens"><span>Note detail</span>
         <select id="sens" title="How many notes to look for in a recording or video">
           <option value="auto">Automatic (read the picture if it's a falling-notes video, else listen)</option><option value="picture">Read the picture only</option><option value="score">Read the sheet music in the video</option><option value="piano">Listen: piano model (most accurate)</option><option value="balanced">Listen: balanced (browser only)</option><option value="more">More notes (adds some extras)</option><option value="fewer">Fewer notes, cleaner</option>
@@ -1278,9 +1285,14 @@ async function handleLink(raw) {
   openAny(new File([blob], name, { type: ct.split(";")[0] }));
 }
 function rightsOk() {
-  if ($("rights").checked) return true;
-  say("Tick the box to confirm you own this media or have permission to use it.", true); return false;
+  const cb = $("rights"), row = cb.closest(".rights"), msg = $("rightsMsg");
+  row.classList.remove("need");
+  if (cb.checked) { msg.hidden = true; return true; }
+  void row.offsetWidth; row.classList.add("need"); msg.hidden = false; say("");      // restart the nudge, show the note under the box
+  row.scrollIntoView({ block: "center", behavior: "smooth" }); cb.focus({ preventScroll: true });
+  return false;
 }
+$("rights").addEventListener("change", () => { if ($("rights").checked) { $("rights").closest(".rights").classList.remove("need"); $("rightsMsg").hidden = true; } });
 // The site's own embedded player for a link, if it has one (Instagram posts/reels, YouTube videos).
 function embedFor(url) {
   const h = url.hostname.replace(/^www\./, "").replace(/^m\./, "");
