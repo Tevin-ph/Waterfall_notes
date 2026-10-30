@@ -57,6 +57,18 @@ def _events_fast(tr, audio, hop_s=HOP_BEST):
     return events, pedal or []
 
 
+def held_length(on, d, onsets):
+    """Guess how long the key was held, never more than d (how long the note sounds). With the pedal down a note rings on after the finger
+    lets go, and audio can't show when that was. Pianists mostly hold a key until their next note in the same hand, so that is the guess:
+    the next onset in the same hand (ignoring notes struck with this one). Without one soon after, 1 s at most. A guess, not a measurement."""
+    import bisect
+    i = bisect.bisect_right(onsets, on + 0.04)
+    gap = onsets[i] - on if i < len(onsets) else None
+    if gap is not None and gap <= 3.0:
+        return min(d, max(0.15, gap - 0.03))
+    return min(d, 1.0)
+
+
 def transcribe_file(wav_path, out_path, fast=False):
     import numpy as np
     import soundfile as sf
@@ -78,14 +90,20 @@ def transcribe_file(wav_path, out_path, fast=False):
         events, pedal_events = out["est_note_events"], out.get("est_pedal_events") or []
     pedals = [(float(p["onset_time"]), float(p["offset_time"])) for p in pedal_events]
     notes = []
+    hands = {0: [], 1: []}                                # onsets per hand (the same C4 split the app uses), for held_length
+    for n in events:
+        hands[1 if int(n["midi_note"]) < 60 else 0].append(float(n["onset_time"]))
+    for h in hands.values():
+        h.sort()
     for n in events:
         on, off = float(n["onset_time"]), float(n["offset_time"])
         d = max(0.03, off - on)
-        note = {"m": int(n["midi_note"]), "t": on, "d": d, "v": min(1.0, max(0.2, float(n["velocity"]) / 127.0))}
+        m = int(n["midi_note"])
+        note = {"m": m, "t": on, "d": d, "v": min(1.0, max(0.2, float(n["velocity"]) / 127.0))}
         # The model gives a note the length it SOUNDS, and with the sustain pedal down that runs on until the pedal comes up. When a long note
-        # ends right as a pedal comes up, the key was probably released earlier: kd is a short "key held" guess, the rest of d is pedal ring.
+        # ends right as a pedal comes up, the key was probably released earlier: kd is the guessed "key held" time, the rest of d is pedal ring.
         if d > 0.35 and any(a <= off + 0.05 and abs(b - off) <= 0.15 for a, b in pedals):
-            note["kd"] = 0.3
+            note["kd"] = round(held_length(on, d, hands[1 if m < 60 else 0]), 3)
         notes.append(note)
     with open(out_path, "w") as f:
         json.dump({"notes": notes, "pedal": [{"t": a, "d": max(0.05, b - a)} for a, b in pedals]}, f)
