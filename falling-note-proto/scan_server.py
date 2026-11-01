@@ -9,6 +9,7 @@ Runs only on 127.0.0.1.
 import glob
 import json
 import http.server
+import io
 import ipaddress
 import os
 import queue
@@ -21,6 +22,11 @@ import tempfile
 import threading
 import urllib.parse
 import zipfile
+
+try:
+    from PIL import Image          # optional: lets small sheet-music images be enlarged before scanning (pip install pillow)
+except ImportError:
+    Image = None
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PORT = int(os.environ.get("PORT", "8765"))
@@ -45,10 +51,58 @@ def find_audiveris():
     return None
 
 
+TARGET_INTERLINE = 22     # px between staff lines Audiveris reads well (it gives up below ~12 and is best around 20-30)
+
+
+def staff_spacing(im):
+    """Typical gap in pixels between neighbouring staff lines, from how dark each row of the page is. None if it can't tell."""
+    col = im.resize((1, im.height), Image.BOX)
+    dark = [255 - col.getpixel((0, y)) for y in range(im.height)]
+    top = max(dark)
+    if top < 20:
+        return None
+    rows = [y for y, a in enumerate(dark) if a > 0.45 * top]
+    centers, run = [], []
+    for y in rows:                                        # a line 2 px thick is one line
+        if run and y - run[-1] > 1:
+            centers.append(sum(run) / len(run)); run = []
+        run.append(y)
+    if run:
+        centers.append(sum(run) / len(run))
+    gaps = sorted(b - a for a, b in zip(centers, centers[1:]) if 3 <= b - a <= 30)
+    return gaps[len(gaps) // 2] if len(gaps) >= 8 else None
+
+
+def enlarge_if_small(data, ext):
+    """Audiveris needs staff lines about 20 px apart. A screenshot or small download has them 6-10 px apart, and it then finds no music
+    at all (an 850x1100 page: 4 s and nothing; enlarged 3x: 35 bars). So small images are enlarged first. PDFs are rendered by Audiveris itself."""
+    if ext == ".pdf" or Image is None:
+        return data, ext
+    try:
+        im = Image.open(io.BytesIO(data)); im.load()
+        im = im.convert("L")
+        gap = staff_spacing(im)
+        if gap is None:                                   # no clear lines (a photo): go by the size, roughly a letter page at 200 dpi or less
+            k = 3300 / max(im.size) if max(im.size) < 1700 else 1
+        else:
+            k = TARGET_INTERLINE / gap if gap < 18 else 1
+        k = min(k, 4.0, (40e6 / (im.width * im.height)) ** 0.5)
+        if k < 1.2:
+            return data, ext
+        big = im.resize((round(im.width * k), round(im.height * k)), Image.LANCZOS)
+        out = io.BytesIO(); big.save(out, "PNG")
+        print("scan: enlarged the image %.1fx (staff lines %s px apart)" % (k, "%.1f" % gap if gap else "unknown"), flush=True)
+        return out.getvalue(), ".png"
+    except Exception as e:                                # anything odd about the file: let Audiveris try it as it is
+        print("scan: could not enlarge the image:", e, flush=True)
+        return data, ext
+
+
 def run_scan(data, filename):
     ext = os.path.splitext(filename)[1].lower()
     if ext not in ALLOWED:
         return 415, "Unsupported file type %r. Use PDF or an image (png/jpg/tif)." % ext
+    data, ext = enlarge_if_small(data, ext)
     exe = find_audiveris()
     if not exe:
         return 503, "Audiveris was not found. Install it, or set the AUDIVERIS environment variable to its executable."
@@ -75,7 +129,7 @@ def run_scan(data, filename):
             with open(xml[0], "rb") as f:
                 return 200, f.read().decode("utf-8", "replace")
         tail = (proc.stdout + "\n" + proc.stderr).strip()[-600:]
-        return 422, "Audiveris could not read any music from that image. Try a cleaner, flatter, higher-resolution scan.\n" + tail
+        return 422, "Audiveris could not read any music from that image. Try a cleaner, flatter, higher-resolution scan" + ("" if Image else " (installing Pillow, pip install pillow, lets the helper enlarge small images itself)") + ".\n" + tail
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
