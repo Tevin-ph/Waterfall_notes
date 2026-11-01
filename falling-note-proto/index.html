@@ -1214,7 +1214,7 @@ function say(msg, isErr) {
   }
   for (const id of ["createMsg", "scanMsg", "embedMsg"]) { const el = $(id); el.textContent = msg || ""; el.classList.toggle("err", !!isErr); }
 }
-// Send one image of a page of music to the scanner (Audiveris in the local helper); returns MusicXML text.
+// Send one image of a page of music to the scanner (homr, or Audiveris, in the local helper); returns MusicXML text.
 async function scanImageBlob(blob, name) {
   let r;
   try { r = await fetch("/scan", { method: "POST", headers: { "X-Filename": name }, body: blob }); }
@@ -1526,7 +1526,7 @@ function route() {
 addEventListener("hashchange", route);
 async function checkScanner() {
   const el = $("scanState");
-  try { const t = await (await fetch("/scan/status")).text(); el.textContent = t === "ready" ? "Scanner ready" : "Scanner (Audiveris) is not installed. MusicXML files still work."; }
+  try { const t = await (await fetch("/scan/status")).text(); el.textContent = t === "ready" ? "Scanner ready" : "No sheet-music scanner is installed (homr or Audiveris). MusicXML files still work."; }
   catch (e) { el.textContent = "Start the helper to scan photos and PDFs: python falling-note-proto/scan_server.py"; }
 }
 

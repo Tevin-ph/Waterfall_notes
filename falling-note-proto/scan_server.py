@@ -24,9 +24,13 @@ import urllib.parse
 import zipfile
 
 try:
-    from PIL import Image          # optional: lets small sheet-music images be enlarged before scanning (pip install pillow)
+    from PIL import Image, ImageFilter   # optional: lets small or tilted sheet-music images be fixed before scanning (pip install pillow numpy)
 except ImportError:
     Image = None
+try:
+    import numpy as np
+except ImportError:
+    np = None
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PORT = int(os.environ.get("PORT", "8765"))
@@ -73,39 +77,130 @@ def staff_spacing(im):
     return gaps[len(gaps) // 2] if len(gaps) >= 8 else None
 
 
+def flatten(im):
+    """Even out shadows and a grey desk (a phone photo): divide by a blurred copy with the dark ink taken out. Skipped for an evenly lit page."""
+    w, h = im.size
+    small = im.resize((max(1, w // 8), max(1, h // 8)), Image.BOX).filter(ImageFilter.MaxFilter(5)).filter(ImageFilter.GaussianBlur(3))
+    bg = np.asarray(small.resize((w, h), Image.BILINEAR), dtype=np.float32)
+    if np.percentile(bg, 5) / max(1.0, np.percentile(bg, 95)) > 0.85:
+        return im
+    out = np.clip(np.asarray(im, dtype=np.float32) / np.maximum(bg, 1.0) * 245, 0, 255)
+    return Image.fromarray(out.astype(np.uint8))
+
+
+def tilt_angle(im):
+    """Degrees to rotate (counter-clockwise, as PIL does) so the staff lines run level: the angle that makes the rows of the page most
+    different from each other (level lines are dark rows next to light rows)."""
+    s = 800 / max(im.size)
+    small = im.resize((max(1, int(im.width * s)), max(1, int(im.height * s))), Image.BOX)
+
+    def score(angle):
+        r = np.asarray(small.rotate(angle, resample=Image.BILINEAR, fillcolor=255), dtype=np.float32)
+        d = np.diff((255 - r).mean(axis=1))
+        return float((d * d).sum())
+    best = max(np.arange(-8, 8.01, 0.5), key=score)
+    return float(max(np.arange(best - 0.5, best + 0.51, 0.1), key=score))
+
+
 def enlarge_if_small(data, ext):
-    """Audiveris needs staff lines about 20 px apart. A screenshot or small download has them 6-10 px apart, and it then finds no music
-    at all (an 850x1100 page: 4 s and nothing; enlarged 3x: 35 bars). So small images are enlarged first. PDFs are rendered by Audiveris itself."""
+    """Audiveris needs level staff lines about 20 px apart. A screenshot or small download has them 6-10 px apart and it then finds no music
+    at all (an 850x1100 page: 4 s and nothing; enlarged 3x: all 35 bars). A phone photo adds shadows and a tilt. So an image is first evened out
+    and straightened (on photos this matters most: measured with and without it, a photo scan went from 17% to 81% of notes right; turning the
+    page black and white first made it worse, 17%, so that is left to Audiveris) (needs numpy; skipped without it) and then enlarged. PDFs are rendered by Audiveris itself."""
     if ext == ".pdf" or Image is None:
         return data, ext
     try:
         im = Image.open(io.BytesIO(data)); im.load()
         im = im.convert("L")
-        gap = staff_spacing(im)
-        if gap is None:                                   # no clear lines (a photo): go by the size, roughly a letter page at 200 dpi or less
-            k = 3300 / max(im.size) if max(im.size) < 1700 else 1
+        fixed, angle = im, 0.0
+        if np is not None:
+            fixed = flatten(im)
+            angle = tilt_angle(fixed)
+            if abs(angle) >= 0.3:
+                fixed = fixed.rotate(angle, resample=Image.BICUBIC, expand=True, fillcolor=255)
+            else:
+                angle = 0.0
+        gap = staff_spacing(fixed)
+        if gap is None:                                   # no clear lines: go by the size, roughly a letter page at 200 dpi or less
+            k = 3300 / max(fixed.size) if max(fixed.size) < 1700 else 1
         else:
             k = TARGET_INTERLINE / gap if gap < 18 else 1
-        k = min(k, 4.0, (40e6 / (im.width * im.height)) ** 0.5)
+        k = min(k, 4.0, (19e6 / (fixed.width * fixed.height)) ** 0.5)      # Audiveris refuses pages over 20 million pixels
         if k < 1.2:
+            k = 1.0
+        if k == 1.0 and fixed is im:
             return data, ext
-        big = im.resize((round(im.width * k), round(im.height * k)), Image.LANCZOS)
+        big = fixed.resize((round(fixed.width * k), round(fixed.height * k)), Image.LANCZOS) if k > 1 else fixed
         out = io.BytesIO(); big.save(out, "PNG")
-        print("scan: enlarged the image %.1fx (staff lines %s px apart)" % (k, "%.1f" % gap if gap else "unknown"), flush=True)
+        print("scan: image prepared: tilt %.1f deg, enlarged %.1fx (staff lines %s px apart)" % (angle, k, "%.1f" % gap if gap else "unknown"), flush=True)
         return out.getvalue(), ".png"
     except Exception as e:                                # anything odd about the file: let Audiveris try it as it is
-        print("scan: could not enlarge the image:", e, flush=True)
+        print("scan: could not prepare the image:", e, flush=True)
         return data, ext
 
 
-def run_scan(data, filename):
+HOMR_TIMEOUT_S = 300
+
+
+def find_homr():
+    """homr (https://github.com/liebharc/homr, AGPL-3.0, run as a separate program) in its own environment; HOMR can point at the executable."""
+    env = os.environ.get("HOMR")
+    if env and os.path.exists(env):
+        return env
+    exe = os.path.join(os.path.expanduser("~"), ".waterfall-notes", "homr-venv", "Scripts" if os.name == "nt" else "bin", "homr.exe" if os.name == "nt" else "homr")
+    return exe if os.path.exists(exe) else None
+
+
+def run_homr(data):
+    """-> MusicXML text, or None if homr isn't installed, fails, or finds no notes. data is a PNG (already enlarged and straightened)."""
+    exe = find_homr()
+    if not exe:
+        return None
+    work = tempfile.mkdtemp(prefix="homr_")
+    try:
+        src = os.path.join(work, "page.png")
+        with open(src, "wb") as f:
+            f.write(data)
+        try:
+            subprocess.run([exe, src], capture_output=True, text=True, timeout=HOMR_TIMEOUT_S, cwd=work)
+        except subprocess.TimeoutExpired:
+            return None
+        out = glob.glob(os.path.join(work, "*.musicxml"))
+        if not out:
+            return None
+        with open(out[0], "rb") as f:
+            text = f.read().decode("utf-8", "replace")
+        return text if re.search(r"<pitch>", text) else None
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def run_scan(data, filename, engine=None):
+    """Sheet-music image -> MusicXML. Images go to homr first (measured on 24 real piano pages: about equal to Audiveris on clean pages and far better
+    on camera photos, 81% of notes right against 64%), then to Audiveris if homr isn't installed or reads nothing. PDFs go to Audiveris, which renders them."""
     ext = os.path.splitext(filename)[1].lower()
     if ext not in ALLOWED:
         return 415, "Unsupported file type %r. Use PDF or an image (png/jpg/tif)." % ext
+    engine = engine or os.environ.get("SCAN_ENGINE", "auto")
     data, ext = enlarge_if_small(data, ext)
+    if ext != ".pdf" and engine in ("auto", "homr"):
+        if ext != ".png":                                     # homr reads what it is given; hand it a PNG (Pillow is needed for it to be enlarged anyway)
+            try:
+                b = io.BytesIO(); Image.open(io.BytesIO(data)).convert("L").save(b, "PNG"); png = b.getvalue()
+            except Exception:
+                png = None
+        else:
+            png = data
+        text = run_homr(png) if png else None
+        if text:
+            print("scan: read by homr", flush=True)
+            return 200, text
+        if engine == "homr":
+            return 422, "homr could not read any music from that image."
     exe = find_audiveris()
     if not exe:
-        return 503, "Audiveris was not found. Install it, or set the AUDIVERIS environment variable to its executable."
+        return 503, "No sheet-music scanner was found. Install homr or Audiveris (see the README)."
+    print("scan: read by Audiveris", flush=True)
     work = tempfile.mkdtemp(prefix="scan_")
     try:
         src = os.path.join(work, "input" + ext)
@@ -402,7 +497,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if self.path == "/piano/status":
             return self._reply(200, piano_status())
         if self.path == "/scan/status":
-            return self._reply(200, "ready" if find_audiveris() else "missing")
+            return self._reply(200, "ready" if find_homr() or find_audiveris() else "missing")
         if self.path.startswith("/fetch?"):
             q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             code, body, ctype = fetch_file((q.get("url") or [""])[0])
@@ -419,7 +514,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 if __name__ == "__main__":
     threading.Thread(target=PIANO.warm, daemon=True).start()      # load the piano model in the background so the first request is fast
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    print("Serving %s on http://127.0.0.1:%d (Audiveris: %s)" % (HERE, PORT, find_audiveris() or "not found"), flush=True)
+    print("Serving %s on http://127.0.0.1:%d (scanners: homr %s, Audiveris %s)" % (HERE, PORT, "found" if find_homr() else "not found", "found" if find_audiveris() else "not found"), flush=True)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

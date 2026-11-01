@@ -21,3 +21,10 @@ and the rule gets almost none of them right. Three classical pieces with pedal a
 * `eval_engines.py`: Transkun against the ByteDance model (with the key-hold guess) on clean and phone-style 16 kHz mono clips: F1, false and missed notes, key-hold accuracy. Needs each piece's `.tkw.json` (Transkun) and `.pred.json` / `.deg.json` (ByteDance) from running `piano_worker.py` on the clips.
 * `asap_to_json.py`, `eval_hands.mjs`, `eval_hands_robust.mjs`: turn ASAP MusicXML scores into notes with true hands, then score the C4 rule, the best single split and the hand model (add `tune` to retune), and test the model on noisy input. Fetch the scores from github.com/fosfrancesco/asap-dataset (`<piece>/xml_score.musicxml`) into a folder first.
 * `tk_sensitivity.py`, `extra_notes_from_other_model.py`: the small-note experiments. `xml_roundtrip.mjs`: writes real scores out with `musicxml.js` so `asap_to_json.py` can read them back and compare (97.4% of notes identical).
+
+## Measuring the sheet-music scanner
+Needs a throwaway Python environment with `pip install verovio pymupdf pillow numpy`, the ASAP scores (`_test/asap/*.musicxml`) and the helper running.
+1. `python omr_bench_pages.py _test/asap _test/bench 12` makes test pages with known notes: the first 12 bars of 8 scores, drawn by Verovio as a 850 px screenshot, a 300 dpi print and a camera-style photo. The `.truth.xml` next to each page is the answer key.
+2. `python omr_bench_run.py _test/bench _test/out screen,print,photo` sends each page to the helper's `/scan` and scores it (`omr_score.py`: pitch + place in the bar, and again with note length). `SCAN_ENGINE=audiveris` or `homr` before starting the helper forces one scanner.
+3. `python omr_bench_homr.py _test/bench _test/out_homr` does the same with homr alone, on the page as it is.
+Findings are in the main README. Things this showed: turning a photo black and white first made Audiveris much worse (Chopin photo 17% against 81% without it); homr gains from the same shadow removal and straightening; a "do the bars add up" self-check cannot tell which scanner is right (even the answer keys fail it).
