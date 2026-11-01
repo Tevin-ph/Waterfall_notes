@@ -30,7 +30,7 @@ def trim(src, bars):
     return tree
 
 
-def render(xml_text, width_px):
+def svg_doc(xml_text):
     tk = verovio.toolkit()
     tk.setOptions({"pageWidth": 2100, "pageHeight": 8000, "scale": 100, "adjustPageHeight": True, "header": "none", "footer": "none", "breaks": "auto", "svgViewBox": True})
     tk.loadData(xml_text)
@@ -41,11 +41,27 @@ def render(xml_text, width_px):
     svg = svg[:m.start()] + '<g transform="scale(%s)" color="black" fill="black" stroke="black" stroke-width="0">' % k + svg[m.end():]
     i = svg.rindex("</svg>", 0, svg.rindex("</svg>"))
     svg = svg[:i] + "</g>" + svg[i + len("</svg>"):]
-    doc = fitz.open(stream=svg.encode("utf-8"), filetype="svg")
+    return fitz.open(stream=svg.encode("utf-8"), filetype="svg"), tk.getPageCount()
+
+
+def a4_pdf(xml_text):
+    """The score as a one-page vector PDF on A4 (595 pt wide), the size a real export has. (Verovio's own page is 2100 units wide, which as points is a
+    29 inch page that Audiveris refuses.)"""
+    src = fitz.open("pdf", svg_doc(xml_text)[0].convert_to_pdf())
+    w, h = src[0].rect.width, src[0].rect.height
+    k = (595 - 2 * 28) / w
+    out = fitz.open()
+    page = out.new_page(width=595, height=max(842, h * k + 56))
+    page.show_pdf_page(fitz.Rect(28, 28, 28 + w * k, 28 + h * k), src, 0)
+    return out.tobytes()
+
+
+def render(xml_text, width_px):
+    doc, pages = svg_doc(xml_text)
     page = doc[0]
     zoom = width_px / page.rect.width
     pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), colorspace=fitz.csGRAY, alpha=False)
-    return Image.frombytes("L", (pix.width, pix.height), pix.samples), tk.getPageCount()
+    return Image.frombytes("L", (pix.width, pix.height), pix.samples), pages
 
 
 def photo(im, tilt=2.0, blur=1.0, noise=10.0, shadow=0.35, quality=60, seed=1):
@@ -78,4 +94,5 @@ if __name__ == "__main__":
                 im.save(os.path.join(out, name + ".photo.jpg"), quality=q)
             else:
                 im.save(os.path.join(out, name + "." + tag + ".png"))
+        open(os.path.join(out, name + ".pdf.pdf"), "wb").write(a4_pdf(text))                           # a vector PDF, as a score exported from notation software
         print(name, "pages:", pages, "size(screen):", render(text, 850)[0].size)

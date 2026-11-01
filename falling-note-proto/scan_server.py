@@ -31,6 +31,10 @@ try:
     import numpy as np
 except ImportError:
     np = None
+try:
+    import pypdfium2 as pdfium         # optional (BSD-3/Apache): draws PDF pages so they can be read like pictures (pip install pypdfium2)
+except ImportError:
+    pdfium = None
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PORT = int(os.environ.get("PORT", "8765"))
@@ -140,6 +144,17 @@ def enlarge_if_small(data, ext):
 
 
 HOMR_TIMEOUT_S = 300
+MAX_PAGE_PIXELS = 20e6      # Audiveris ignores any page it would draw bigger than this (it draws PDFs at 300 dpi)
+
+
+def oversized_pdf(data):
+    """(width, height) in inches of the first page if Audiveris would draw it over 20 million pixels, else None. Reads the page size from the file
+    when it is written in the clear; a PDF that hides it (compressed) is not checked."""
+    m = re.search(rb"/MediaBox\s*\[\s*(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s*\]", data[:2_000_000])
+    if not m:
+        return None
+    w, h = abs(float(m.group(3)) - float(m.group(1))) / 72, abs(float(m.group(4)) - float(m.group(2))) / 72
+    return (w, h) if w * h * 300 * 300 > MAX_PAGE_PIXELS else None
 
 
 def find_homr():
@@ -175,28 +190,88 @@ def run_homr(data):
         shutil.rmtree(work, ignore_errors=True)
 
 
+PDF_MAX_PAGES = 30
+
+
+def homr_image(data, ext):
+    """Image bytes -> MusicXML from homr (after the page is evened out, straightened and enlarged), or None."""
+    if not find_homr():
+        return None
+    data, ext = enlarge_if_small(data, ext)
+    if ext != ".png":                                         # homr reads what it is given; hand it a PNG
+        try:
+            b = io.BytesIO(); Image.open(io.BytesIO(data)).convert("L").save(b, "PNG"); data = b.getvalue()
+        except Exception:
+            return None
+    return run_homr(data)
+
+
+def pdf_page_pngs(data):
+    """PDF bytes -> one PNG per page, drawn at 300 dpi (less if that would pass Audiveris's and homr's size limits)."""
+    pdf = pdfium.PdfDocument(data)
+    out = []
+    for i in range(min(len(pdf), PDF_MAX_PAGES)):
+        page = pdf[i]
+        w, h = page.get_size()
+        scale = min(300 / 72, (MAX_PAGE_PIXELS * 0.95 / (w * h)) ** 0.5)
+        b = io.BytesIO(); page.render(scale=scale).to_pil().convert("L").save(b, "PNG")
+        out.append(b.getvalue())
+    return out
+
+
+def merge_pages(texts):
+    """MusicXML of several pages -> one score: the later pages' bars are added after the first page's, and the bars are numbered again."""
+    import xml.etree.ElementTree as ET
+    roots = [ET.fromstring(re.sub(r"<\?xml[^>]*\?>|<!DOCTYPE[^>]*>", "", t).strip()) for t in texts]
+    parts = roots[0].findall("part")
+    for r in roots[1:]:
+        for bp, rp in zip(parts, r.findall("part")):
+            for m in rp.findall("measure"):
+                bp.append(m)
+    for bp in parts:
+        for i, m in enumerate(bp.findall("measure"), 1):
+            m.set("number", str(i))
+    return '<?xml version="1.0" encoding="UTF-8"?>' + ET.tostring(roots[0], encoding="unicode")
+
+
+def homr_pdf(data):
+    """A PDF read page by page with homr: any page it can't read means None, and the whole PDF goes to Audiveris instead."""
+    if not (pdfium and find_homr()):
+        return None
+    try:
+        pages = pdf_page_pngs(data)
+    except Exception as e:
+        print("scan: could not draw the PDF:", e, flush=True)
+        return None
+    texts = []
+    for png in pages:
+        t = homr_image(png, ".png")
+        if not t:
+            return None
+        texts.append(t)
+    return texts[0] if len(texts) == 1 else merge_pages(texts)
+
+
 def run_scan(data, filename, engine=None):
-    """Sheet-music image -> MusicXML. Images go to homr first (measured on 24 real piano pages: about equal to Audiveris on clean pages and far better
-    on camera photos, 81% of notes right against 64%), then to Audiveris if homr isn't installed or reads nothing. PDFs go to Audiveris, which renders them."""
+    """Sheet-music image or PDF -> MusicXML. Measured on 24 real piano pages (8 scores x screenshot / print / camera photo), homr is about equal to
+    Audiveris on clean pages and far better on photos (81% of notes right against 64%); a PDF read by Audiveris directly got 75%, against 84% when its
+    pages are drawn and read by homr like a print. So images, and PDFs when pypdfium2 can draw them, go to homr first, then to Audiveris."""
     ext = os.path.splitext(filename)[1].lower()
     if ext not in ALLOWED:
         return 415, "Unsupported file type %r. Use PDF or an image (png/jpg/tif)." % ext
     engine = engine or os.environ.get("SCAN_ENGINE", "auto")
-    data, ext = enlarge_if_small(data, ext)
-    if ext != ".pdf" and engine in ("auto", "homr"):
-        if ext != ".png":                                     # homr reads what it is given; hand it a PNG (Pillow is needed for it to be enlarged anyway)
-            try:
-                b = io.BytesIO(); Image.open(io.BytesIO(data)).convert("L").save(b, "PNG"); png = b.getvalue()
-            except Exception:
-                png = None
-        else:
-            png = data
-        text = run_homr(png) if png else None
+    if engine in ("auto", "homr"):
+        text = homr_pdf(data) if ext == ".pdf" else homr_image(data, ext)
         if text:
             print("scan: read by homr", flush=True)
             return 200, text
         if engine == "homr":
-            return 422, "homr could not read any music from that image."
+            return 422, "homr could not read any music from that file."
+    if ext == ".pdf":
+        big = oversized_pdf(data)
+        if big:
+            return 422, "This PDF's pages are %.0f x %.0f inches, so the scanner would have to draw them at more than 20 million pixels and refuses. Export or print it at A4 or Letter size and try again." % big
+    data, ext = enlarge_if_small(data, ext)
     exe = find_audiveris()
     if not exe:
         return 503, "No sheet-music scanner was found. Install homr or Audiveris (see the README)."

@@ -2,6 +2,7 @@
 # The helper tries homr first on photos and images and falls back to Audiveris (installed separately) if homr is missing or reads nothing.
 # homr is AGPL-3.0 licensed. It is run here as a separate program on your own computer, which is fine; if you ever publish or host this app for
 # other people, read its licence first (https://github.com/liebharc/homr).
+# (pillow and numpy straighten and enlarge pages, pypdfium2 draws PDF pages.) The helper itself runs on your normal Python, so also run: pip install pillow numpy pypdfium2
 # Needs Python 3.11 to 3.15. Everything goes under your user folder. Run:  powershell -ExecutionPolicy Bypass -File falling-note-proto\setup_scanner.ps1
 $ErrorActionPreference = "Stop"
 $venv = Join-Path $env:USERPROFILE ".waterfall-notes\homr-venv"
@@ -13,7 +14,7 @@ if (-not (Test-Path $py)) {
   python -m venv $venv
 }
 & $py -m pip install --upgrade pip
-& $py -m pip install homr pillow numpy
+& $py -m pip install homr pillow numpy pypdfium2
 Write-Host "Downloading homr's models (once)..."
 & (Join-Path $venv "Scripts\homr.exe") --init
 Write-Host "Done. Restart the helper (python falling-note-proto\scan_server.py); it prints which scanners it found."
