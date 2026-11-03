@@ -180,12 +180,14 @@
   .rdForm { flex:1; min-width:0; display:flex; flex-direction:column; gap:6px; } .rdForm h2 { margin:0 0 4px; font-size:19px; font-weight:600; }
   .rdLbl { font-size:10.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--dim); margin-top:10px; }
   #rdThemes { display:grid; grid-template-columns:repeat(auto-fill,minmax(118px,1fr)); gap:8px; }
-  #rdThemes button { text-align:left; padding:8px; border-radius:10px; display:flex; flex-direction:column; gap:7px; font-size:13px; } #rdThemes button.on { border-color:var(--accent); background:var(--hover); }
+  #rdThemes button { text-align:left; padding:8px; border-radius:10px; display:flex; flex-direction:column; gap:7px; font-size:13px; } #rdThemes button.on { border-color:var(--accent); background:var(--hover); color:var(--ink); }
   #rdThemes i { height:24px; border-radius:6px; display:block; }
-  #rdClips { display:flex; flex-wrap:wrap; gap:6px; } #rdClips button { padding:5px 10px; font-size:13px; border-radius:8px; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } #rdClips button.on { border-color:var(--accent); background:var(--hover); }
+  #rdClips { display:flex; flex-wrap:wrap; gap:6px; } #rdClips button { padding:5px 10px; font-size:13px; border-radius:8px; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } #rdClips button.on { border-color:var(--accent); background:var(--hover); color:var(--ink); }
   #rdClipHint { color:var(--dim); font-size:12.5px; line-height:1.45; margin:6px 0 0; }
   #rdWhy { color:var(--ink); font-size:13px; line-height:1.45; margin:2px 0 0; min-height:18px; } #rdWhy:empty { display:none; }
   #rdSw { white-space:nowrap; } #rdSw i { display:inline-block; width:13px; height:13px; border-radius:50%; margin:0 0 -2px 5px; border:1px solid rgba(255,255,255,.35); }
+  .rdUp { display:flex; flex-direction:column; gap:3px; border:1px dashed var(--line2); border-radius:12px; padding:13px 15px; cursor:pointer; margin-bottom:2px; } .rdUp:hover { border-color:var(--accent); background:var(--hover); }
+  .rdUp b { font-weight:600; } .rdUp span { color:var(--dim); font-size:12.5px; line-height:1.4; }
   #rdBlurb { color:var(--dim); font-size:13px; line-height:1.45; min-height:38px; margin:4px 0 0; }
   .rdForm input[type=text], .rdForm input[type=number] { font:inherit; color:var(--ink); background:var(--panel); border:1px solid var(--line2); border-radius:10px; padding:8px 11px; width:100%; box-sizing:border-box; }
   .rdRow { display:flex; gap:10px; flex-wrap:wrap; } .rdRow > div { flex:1; min-width:110px; display:flex; flex-direction:column; gap:6px; }
@@ -272,10 +274,11 @@
       <div class="rdPrev"><canvas id="rdCv" width="270" height="480"></canvas><p>Preview: the notes fall over this picture, and the background moves with the music.</p></div>
       <div class="rdForm">
         <h2>Make a reel</h2>
+        <label class="rdUp" for="rdFile"><b>Upload your own video as the background</b><span id="rdUpName">Choose a video or picture, or drop one anywhere on this window (.mp4 or .webm works best).</span></label><input id="rdFile" type="file" accept="video/*,image/*" hidden>
         <div class="rdLbl">Theme</div><div id="rdThemes"></div><p id="rdBlurb"></p><p id="rdWhy"></p>
         <div id="rdMediaRow" hidden>
           <div class="rdLbl">Your clip</div><div id="rdClips"></div>
-          <div style="margin-top:6px"><label class="btn" for="rdFile">Choose a file…</label><input id="rdFile" type="file" accept="video/*,image/*" hidden> <span id="rdFileName" style="color:var(--dim);font-size:13px"></span></div>
+          <div style="margin-top:6px"><label class="btn" for="rdFile">Choose a different file…</label> <span id="rdFileName" style="color:var(--dim);font-size:13px"></span></div>
           <p id="rdClipHint"></p>
           <div class="rdRow">
             <div><div class="rdLbl">Effects over it</div><select id="rdFx"><option value="media">Sparks and dust</option><option value="pirate">Storm: rain and lightning</option><option value="space">Stars and shooting stars</option><option value="synth">Neon rings and scanlines</option><option value="sakura">Blossom petals</option><option value="embers">Rising embers</option></select></div>
@@ -1621,7 +1624,7 @@ async function openReel() {
   reelMod = reelMod || await import("./reel.js");
   if (!$("rdThemes").children.length) for (const th of reelMod.THEMES) {
     const b = document.createElement("button"); b.dataset.id = th.id; b.innerHTML = '<i style="background:linear-gradient(135deg,' + th.sw.join(",") + ')"></i>'; b.append(th.name);
-    b.onclick = () => { rd.touched.theme = true; rd.theme = th.id; rdSuggestBuild(); }; $("rdThemes").append(b);
+    b.onclick = () => { rd.touched.theme = true; rd.theme = th.id; rdSuggestBuild(); if (th.id === "media" && !rd.media) $("rdFile").click(); }; $("rdThemes").append(b);
   }
   $("rdTitle").value = song.name || ""; $("rdFrom").value = Math.round(S.loopA != null ? S.loopA : 0); $("rdMsg").textContent = "It plays the song once in real time and records it, so it takes as long as the clip. Keep this tab in front.";
   rd.touched = rd.media ? { theme: true } : {}; $("rdView").value = S.view; $("reelDlg").hidden = false; rdSuggestBuild(); rdLoadClips(); rd.last = performance.now(); rd.raf = requestAnimationFrame(rdLoop);
@@ -1643,7 +1646,7 @@ async function rdSetMedia(f, label) {                // f: a File or Blob of a v
     await new Promise(r => { el.onloadeddata = r; el.onerror = r; }); if (!el.videoWidth) { $("rdMsg").textContent = "This browser can't play that clip (try .mp4 H.264 or .webm)."; URL.revokeObjectURL(url); return; }
     try { await el.play(); } catch (x) {}
   } else { el = new Image(); el.src = url; try { await el.decode(); } catch (x) {} }
-  rd.media = { el, url, label }; rd.theme = "media"; rd.touched = {}; $("rdFileName").textContent = label; $("rdMsg").textContent = "Looking at the clip…";
+  rd.media = { el, url, label }; rd.theme = "media"; rd.touched = {}; $("rdFileName").textContent = label; $("rdUpName").textContent = "Using: " + label + ". Click here to choose a different video or picture."; $("rdMsg").textContent = "Looking at the clip…";
   [...$("rdClips").children].forEach(b => b.classList.toggle("on", b.textContent === label));
   try { rd.stats = await reelMod.analyzeClip(rd.media); } catch (x) { rd.stats = null; }
   $("rdMsg").textContent = ""; rdSuggestBuild();
