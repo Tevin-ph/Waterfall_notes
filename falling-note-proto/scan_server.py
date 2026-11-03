@@ -413,6 +413,23 @@ DOWNLOAD_EXTS = {".mp4", ".mov", ".webm", ".m4v", ".mkv", ".mp3", ".wav", ".m4a"
                  ".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".xml", ".musicxml"}
 DOWNLOAD_MAX = 400 * 1024 * 1024
 
+# Background clips for reels: whatever videos or pictures you drop into the "backgrounds" folder next to this file show up in the Reel dialog.
+BG_DIR = os.path.join(HERE, "backgrounds")
+BG_KINDS = {".mp4": "video", ".webm": "video", ".m4v": "video", ".mov": "video", ".jpg": "image", ".jpeg": "image", ".png": "image", ".webp": "image"}
+BG_MAX = 1024 * 1024 * 1024
+
+def list_backgrounds():
+    out = []
+    try:
+        names = sorted(os.listdir(BG_DIR), key=str.lower)
+    except OSError:
+        return out
+    for n in names:
+        kind, p = BG_KINDS.get(os.path.splitext(n)[1].lower()), os.path.join(BG_DIR, n)
+        if kind and os.path.isfile(p):
+            out.append({"name": n, "kind": kind, "size": os.path.getsize(p)})
+    return out
+
 
 def latest_download():
     """(path, stat, name) of the newest media file directly inside Downloads, or None. Unfinished downloads (.crdownload etc.) don't match."""
@@ -566,7 +583,30 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         return self._reply(404, "Not found")
 
+    def _backgrounds(self):
+        if not self._own_page_only():
+            return self._reply(403, "Not allowed.")
+        parsed = urllib.parse.urlparse(self.path)
+        found = list_backgrounds()
+        if parsed.path == "/backgrounds-list":
+            return self._reply(200, json.dumps({"dir": BG_DIR, "files": found}), "application/json; charset=utf-8")
+        want = os.path.basename((urllib.parse.parse_qs(parsed.query).get("name") or [""])[0])      # only a name from the list, never a path
+        hit = next((f for f in found if f["name"] == want), None)
+        if not hit:
+            return self._reply(404, "No such clip in the backgrounds folder.")
+        if hit["size"] > BG_MAX:
+            return self._reply(413, "That clip is larger than %d MB." % (BG_MAX // 1048576))
+        import mimetypes
+        self.send_response(200)
+        self.send_header("Content-Type", mimetypes.guess_type(want)[0] or "application/octet-stream")
+        self.send_header("Content-Length", str(hit["size"]))
+        self.end_headers()
+        with open(os.path.join(BG_DIR, want), "rb") as f:
+            shutil.copyfileobj(f, self.wfile, 1024 * 1024)
+
     def do_GET(self):
+        if self.path.startswith("/backgrounds-"):
+            return self._backgrounds()
         if self.path.startswith("/latest-download"):
             return self._latest()
         if self.path == "/piano/status":
@@ -587,6 +627,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    os.makedirs(BG_DIR, exist_ok=True)
     threading.Thread(target=PIANO.warm, daemon=True).start()      # load the piano model in the background so the first request is fast
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     print("Serving %s on http://127.0.0.1:%d (scanners: homr %s, Audiveris %s)" % (HERE, PORT, "found" if find_homr() else "not found", "found" if find_audiveris() else "not found"), flush=True)

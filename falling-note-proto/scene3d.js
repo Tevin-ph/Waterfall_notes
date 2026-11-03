@@ -147,6 +147,32 @@ export function createScene(stage) {
   composer.addPass(bloom);
   composer.addPass(new T.OutputPass());
 
+  // ---------- reel mode (see reel.js): a fixed 9:16 picture, a themed canvas behind the notes and an effects canvas over them ----------
+  let reelCfg = null, bgTex = null, fgTex = null;                 // reelCfg: { w, h, bg, fg, bottom (share of the height kept clear under the keys), scrim (0..1) }
+  const composerRatio = renderer.getPixelRatio();                 // what the composer was built with, put back when the reel ends
+  const ovScene = new T.Scene(), ovCam = new T.PerspectiveCamera(40, 1, 0.1, 10), ovMesh = new T.Mesh(planeGeo, new T.MeshBasicMaterial({ transparent: true, depthTest: false, depthWrite: false, toneMapped: false }));
+  ovCam.position.z = 1; ovScene.add(ovMesh);
+  const canvasTex = c => { const t = new T.CanvasTexture(c); t.colorSpace = T.SRGBColorSpace; t.generateMipmaps = false; t.minFilter = 1006; return t; };      // 1006 = LinearFilter (a canvas that changes every frame needs no mipmaps)
+  function setReel(cfg) {
+    if (bgTex) { bgTex.dispose(); fgTex.dispose(); bgTex = fgTex = null; }
+    reelCfg = cfg || null;
+    const fm = floor.material;
+    if (cfg) {
+      bgTex = canvasTex(cfg.bg); fgTex = canvasTex(cfg.fg); scene.background = bgTex; ovMesh.material.map = fgTex; ovMesh.material.needsUpdate = true;
+      fm.transparent = true; fm.opacity = cfg.scrim ?? 0.5; fm.depthWrite = false; el.style.objectFit = "contain";       // the lane darkens the background a little so the notes read
+    } else {
+      scene.background = new T.Color(BG); fm.transparent = false; fm.opacity = 1; fm.depthWrite = true; el.style.objectFit = ""; composer.setPixelRatio(composerRatio);
+    }
+    [octMat.opacity, beatBar.opacity, beatMinor.opacity] = cfg ? [0.05, 0.1, 0.04] : [0.13, 0.2, 0.08];       // fainter guide lines over a picture
+    fm.needsUpdate = true; setQuality(quality);                    // sets the pixel ratio and sizes everything again
+  }
+  // where a key and the hit line land on the screen (0..1 from the left / from the top), for effects that start at the keys
+  const pv = new T.Vector3();
+  const reelProject = () => ({
+    keyX: m => { const k = keys[Math.max(FIRST, Math.min(LAST, m))]; return pv.set(k.x, 0, 0).project(camera).x * 0.5 + 0.5; },
+    hitY: pv.set(0, 0.04, 0).project(camera).y * -0.5 + 0.5,
+  });
+
   // ---------- camera: zooms to the octaves in use, never cropping the edge keys ----------
   const view = { cx: 0, half: 28, tcx: 0, thalf: 28 };
   function setRange(lo, hi) {
@@ -161,9 +187,9 @@ export function createScene(stage) {
     if (vmode === "flat") {
       // Straight down: notes fall vertically, the keyboard is seen from above at the bottom of the screen (like Synthesia).
       camera.fov = FF; camera.up.set(0, 0, -1);
-      const worldH = 2 * D * Math.tan(FF * RAD / 2), zc = 6.4 - worldH / 2;     // keyboard front edge sits just above the bottom of the frame
+      const worldH = 2 * D * Math.tan(FF * RAD / 2), lift = reelCfg ? reelCfg.bottom * worldH : 0, zc = 6.4 + lift - worldH / 2;     // keyboard front edge sits just above the bottom of the frame (a reel lifts it clear of the app's buttons)
       camera.position.set(view.cx, D, zc); camera.lookAt(view.cx, 0, zc);
-      laneDepth = Math.max(8, worldH - 7);                                        // room above the keyboard for the falling notes
+      laneDepth = Math.max(8, worldH - 7 - lift);                                 // room above the keyboard for the falling notes
     } else {
       camera.fov = F; camera.up.set(0, 1, 0);
       const beta = 42 * RAD, pitch = beta - 0.33 * F * RAD, kz = 3;
@@ -198,6 +224,10 @@ export function createScene(stage) {
   function resize(w, h) {
     if (!w || !h) return;
     lastW = w; lastH = h;
+    if (reelCfg) {                                                   // a reel is always exactly its own size, whatever shape the page's stage is
+      w = reelCfg.w; h = reelCfg.h; renderer.setPixelRatio(1); composer.setPixelRatio(1);
+      ovCam.aspect = w / h; ovCam.updateProjectionMatrix(); const ph = 2 * Math.tan(20 * RAD); ovMesh.scale.set(ph * w / h, ph, 1);
+    }
     renderer.setSize(w, h, false); composer.setSize(w, h); bloom.resolution.set(w, h);
     aspect = w / h; view.cx = view.tcx; view.half = view.thalf; placeCamera();
   }
@@ -323,6 +353,7 @@ export function createScene(stage) {
   function render(s) {
     const { p, notes, startIdx, transpose, allowed, letters, look, live, beatLen, loopA, loopB, lookAhead } = s;
     const now = performance.now(), dt = Math.min(0.05, (now - last) / 1000); last = now;
+    if (reelCfg) bgTex.needsUpdate = fgTex.needsUpdate = true;       // both canvases were redrawn for this frame
     const want = s.view === "tilt" ? "tilt" : "flat";
     if (want !== vmode) { vmode = want; placeCamera(); }
     zps = vmode === "flat" ? laneDepth / lookAhead : ZPS;           // straight down: fit the look-ahead into the screen height
@@ -395,6 +426,7 @@ export function createScene(stage) {
       m.visible = t != null && d >= 0 && d <= lookAhead; if (m.visible) m.position.set(0, 0.04, -d * zps);
     });
     composer.render();
+    if (reelCfg) { renderer.autoClear = false; renderer.render(ovScene, ovCam); renderer.autoClear = true; }       // the effects and title go over the notes
   }
 
   // Hand colors are chosen by the player. Keys and sparks pick them up the next time they light.
@@ -420,5 +452,5 @@ export function createScene(stage) {
   applyGlow();
   // compile every shader now (hands included, though hidden) so switching the hands on later doesn't freeze the picture for a second
   try { renderer.compile(scene, camera); } catch (e) { console.warn("shader precompile skipped:", e); }
-  return { render, resize, setColors, setSkin, setQuality, setGlow, dispose() { renderer.dispose(); el.remove(); } };
+  return { render, resize, setColors, setSkin, setQuality, setGlow, setReel, reelProject, dispose() { renderer.dispose(); el.remove(); } };
 }

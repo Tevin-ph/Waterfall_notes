@@ -5,3 +5,5 @@ __pycache__/
 
 # local test files, never committed
 falling-note-proto/_test/
+
+falling-note-proto/backgrounds/
