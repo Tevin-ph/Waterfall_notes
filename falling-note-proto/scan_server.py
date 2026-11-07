@@ -20,7 +20,9 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import urllib.parse
+import uuid
 import zipfile
 
 try:
@@ -515,6 +517,113 @@ def fetch_file(url):
             shutil.rmtree(work, ignore_errors=True)
     return 502, "Too many redirects.", None
 
+# ---- stem splitting: a song into vocals, drums, bass, guitar, piano and the rest (Demucs, in the piano environment) ----
+SPLIT_DIR = os.path.join(os.path.expanduser("~"), ".waterfall-notes", "splits")
+SPLIT_WORKER = os.path.join(HERE, "split_worker.py")
+SPLIT_MAX = 400 * 1024 * 1024
+SPLIT_KEEP_S = 24 * 3600                       # finished splits are deleted a day later
+SPLIT_MODELS = ("htdemucs_6s", "bsroformer_sw")  # fast, 6 stems | best quality, 6 stems
+SPLITS = {}                                    # job id -> {"state": queued|running|done|error, "progress", "message", "dir", "stems", ...}
+SPLIT_LOCK = threading.Lock()                  # one separation at a time: it uses every CPU core
+
+
+def _venv_python(name):
+    return os.path.join(os.path.expanduser("~"), ".waterfall-notes", name, "Scripts" if os.name == "nt" else "bin", "python.exe" if os.name == "nt" else "python")
+
+
+SPLIT_PY = os.environ.get("SPLIT_PYTHON") or (_venv_python("split-venv") if os.path.exists(_venv_python("split-venv")) else PIANO_PY)      # the GPU environment when it exists
+ROFORMER_FILES = [os.path.join(os.path.expanduser("~"), ".waterfall-notes", "models", "bs-roformer-sw", f) for f in ("BS-Rofo-SW-Fixed.ckpt", "BS-Rofo-SW-Fixed.yaml")]
+_split_probe = {}
+
+
+def split_info():
+    """What the splitter can do here: {"ready", "message", "gpu", "models": [{"id", "label"}]}. Looked up once (it starts Python to ask PyTorch)."""
+    if _split_probe:
+        return _split_probe
+    root = os.path.dirname(os.path.dirname(SPLIT_PY))
+    info = {"ready": False, "gpu": False, "models": [], "message": ""}
+    if not os.path.exists(SPLIT_PY):
+        info["message"] = "The Python environment for splitting is not installed (run setup_split.ps1)."
+    elif not glob.glob(os.path.join(root, "*", "site-packages", "demucs")) and not glob.glob(os.path.join(root, "*", "*", "site-packages", "demucs")):
+        info["message"] = "Demucs is not installed (run setup_split.ps1)."
+    else:
+        try:
+            r = subprocess.run([SPLIT_PY, "-c", "import torch; print(torch.cuda.is_available())"], capture_output=True, text=True, timeout=120)
+            info["gpu"] = r.stdout.strip().endswith("True")
+        except Exception:
+            pass
+        info["ready"] = True
+        info["models"].append({"id": "htdemucs_6s", "label": "Fast: vocals, drums, bass, guitar, piano, other (Demucs)"})
+        if all(os.path.exists(f) for f in ROFORMER_FILES) and os.path.isdir(os.path.join(os.path.expanduser("~"), ".waterfall-notes", "msst")):
+            info["models"].append({"id": "bsroformer_sw", "label": "Best quality: the same six (BS-RoFormer)" + ("" if info["gpu"] else ", very slow without a graphics card")})
+    if info["ready"]:
+        _split_probe.update(info)             # only a working setup is remembered, so installing it later needs no restart of the checks
+    return info
+
+
+def split_status():
+    return "ready" if split_info()["ready"] else "missing: " + split_info()["message"]
+
+
+def _forget_old_splits():
+    now = time.time()
+    for jid in [j for j, v in SPLITS.items() if now - v["t0"] > SPLIT_KEEP_S and v["state"] in ("done", "error")]:
+        shutil.rmtree(SPLITS[jid]["dir"], ignore_errors=True)
+        del SPLITS[jid]
+    if os.path.isdir(SPLIT_DIR):                # folders left from an earlier run of the helper
+        for d in os.listdir(SPLIT_DIR):
+            full = os.path.join(SPLIT_DIR, d)
+            if d not in SPLITS and now - os.path.getmtime(full) > SPLIT_KEEP_S:
+                shutil.rmtree(full, ignore_errors=True)
+
+
+def _run_split(jid, model):
+    job = SPLITS[jid]
+    with SPLIT_LOCK:
+        job.update(state="running", message="Starting…")
+        tail = []
+        try:
+            proc = subprocess.Popen([SPLIT_PY, SPLIT_WORKER, os.path.join(job["dir"], "input.wav"), job["dir"], model], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                    text=True, encoding="utf-8", errors="replace", bufsize=1, cwd=job["dir"])
+            for line in proc.stdout:
+                line = line.strip()
+                if line.startswith("PROGRESS "):
+                    job.update(progress=float(line.split()[1]), message="Separating the instruments…")
+                elif line.startswith("DEVICE "):
+                    job["device"] = line.split()[1]
+                elif line:
+                    tail = (tail + [line])[-8:]
+            proc.wait()
+            meta = os.path.join(job["dir"], "stems.json")
+            if proc.returncode == 0 and os.path.exists(meta):
+                with open(meta) as f:
+                    info = json.load(f)
+                job.update(state="done", progress=1.0, message="Done", stems=info["stems"], rate=info["rate"], seconds=info["seconds"], key=info.get("key"), bpm=info.get("bpm"))
+            else:
+                job.update(state="error", message=(tail[-1] if tail else "The splitter stopped without saying why.")[:300])
+        except Exception as e:
+            job.update(state="error", message="Could not start the splitter: %s" % e)
+        finally:
+            try:
+                os.remove(os.path.join(job["dir"], "input.wav"))
+            except OSError:
+                pass
+
+
+def start_split(data, model):
+    ok = [m["id"] for m in split_info()["models"]]
+    model = model if model in ok else SPLIT_MODELS[0]
+    _forget_old_splits()
+    jid = uuid.uuid4().hex[:12]
+    d = os.path.join(SPLIT_DIR, jid)
+    os.makedirs(d)
+    with open(os.path.join(d, "input.wav"), "wb") as f:
+        f.write(data)
+    SPLITS[jid] = {"state": "queued", "progress": 0.0, "message": "Waiting for the splitter…", "dir": d, "stems": [], "model": model, "t0": time.time()}
+    threading.Thread(target=_run_split, args=(jid, model), daemon=True).start()
+    return jid
+
+
 class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=HERE, **kw)
@@ -539,6 +648,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             fast = (urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("speed") or [""])[0] == "fast"
             code, text = run_piano(self.rfile.read(n), fast)
             return self._reply(code, text, "application/json; charset=utf-8" if code == 200 else "text/plain; charset=utf-8")
+        if urllib.parse.urlparse(self.path).path == "/split":
+            if not self._own_page_only():
+                return self._reply(403, "Not allowed.")
+            if split_status() != "ready":
+                return self._reply(503, split_status())
+            n = int(self.headers.get("Content-Length") or 0)
+            if n <= 0 or n > SPLIT_MAX:
+                return self._reply(413, "The song must be between 1 byte and %d MB once turned into a WAV file." % (SPLIT_MAX // 1048576))
+            model = (urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("model") or [""])[0]
+            return self._reply(200, json.dumps({"id": start_split(self.rfile.read(n), model)}), "application/json; charset=utf-8")
         if self.path != "/scan":
             return self._reply(404, "Not found")
         n = int(self.headers.get("Content-Length") or 0)
@@ -604,7 +723,37 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         with open(os.path.join(BG_DIR, want), "rb") as f:
             shutil.copyfileobj(f, self.wfile, 1024 * 1024)
 
+    def _split_get(self):
+        if not self._own_page_only():
+            return self._reply(403, "Not allowed.")
+        parsed = urllib.parse.urlparse(self.path)
+        q = urllib.parse.parse_qs(parsed.query)
+        if parsed.path == "/split/ready":
+            return self._reply(200, json.dumps(split_info()), "application/json; charset=utf-8")
+        job = SPLITS.get((q.get("id") or [""])[0])
+        if not job:
+            return self._reply(404, "No such split (the helper may have been restarted).")
+        if parsed.path == "/split/status":
+            pub = {k: job[k] for k in ("state", "progress", "message", "stems", "model", "device", "key", "bpm") if k in job}
+            pub.update(rate=job.get("rate"), seconds=job.get("seconds"))
+            return self._reply(200, json.dumps(pub), "application/json; charset=utf-8")
+        if parsed.path == "/split/stem":
+            want = (q.get("name") or [""])[0]
+            if job["state"] != "done" or want not in [x["name"] for x in job["stems"]]:       # only a stem this split made, never a path
+                return self._reply(404, "No such stem.")
+            path = os.path.join(job["dir"], want + ".wav")
+            self.send_response(200)
+            self.send_header("Content-Type", "audio/wav")
+            self.send_header("Content-Length", str(os.path.getsize(path)))
+            self.end_headers()
+            with open(path, "rb") as f:
+                shutil.copyfileobj(f, self.wfile, 1024 * 1024)
+            return
+        return self._reply(404, "Not found")
+
     def do_GET(self):
+        if self.path.startswith("/split/"):
+            return self._split_get()
         if self.path.startswith("/backgrounds-"):
             return self._backgrounds()
         if self.path.startswith("/latest-download"):

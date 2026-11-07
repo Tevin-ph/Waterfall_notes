@@ -108,6 +108,26 @@
   .drop:hover { border-color:#5a5a64; background:#0a0a0c; }
   .drop .dt { color:var(--ink); font-size:18px; font-weight:500; }
   .drop .dsub { margin-top:6px; font-size:13px; }
+
+  /* split instruments */
+  #v-split .crow { flex-wrap:wrap; gap:12px 24px; } #v-split .crow select { flex:0 1 340px; min-width:200px; max-width:100%; } #v-split .crow .status { flex:1 1 260px; min-width:0; }
+  #spMsg { margin-top:22px; color:var(--dim); min-height:22px; } #spMsg.err { color:#ff8a8a; }
+  #spBar { height:6px; border-radius:99px; background:var(--line2); overflow:hidden; margin:6px 0 4px; } #spBar i { display:block; height:100%; width:0; background:var(--accent); transition:width .8s linear; }
+  #spMixer { margin-top:30px; } #spMixer[hidden], #spBar[hidden] { display:none; }
+  #spTop { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:14px; } #spTime { font-variant-numeric:tabular-nums; color:var(--dim); min-width:130px; }
+  .spSep { width:1px; height:22px; background:var(--line2); margin:0 6px; } .spGrow { flex:1; }
+  #spTracks { display:flex; flex-direction:column; gap:4px; }
+  .spRow { display:grid; grid-template-columns:240px 1fr; min-height:76px; border-radius:10px; overflow:hidden; background:color-mix(in srgb, var(--c) 14%, #05050a); transition:opacity .15s; }
+  .spRow.off { opacity:.4; } .spRow.absent { opacity:.7; } .spRow.absent .spName { color:var(--dim); }
+  .spHead { padding:10px 14px; display:flex; flex-direction:column; justify-content:center; gap:4px; min-width:0; }
+  .spName { font-weight:600; } .spTag { font-size:11px; color:var(--dim); min-height:13px; }
+  .spCtl { display:flex; align-items:center; gap:6px; } .spCtl input[type=range] { width:84px; accent-color:var(--c); }
+  .spCtl button { padding:2px 8px; border-radius:7px; font-size:12px; min-width:26px; }
+  .spWaveBox { position:relative; min-height:76px; } .spWaveBox::after { content:""; position:absolute; top:0; bottom:0; left:var(--p, 0%); width:2px; background:#fff; opacity:.85; pointer-events:none; }
+  .spWave { position:absolute; inset:0; width:100%; height:100%; display:block; cursor:pointer; }
+  #spInfo { display:flex; justify-content:flex-end; gap:12px; margin-top:16px; } #spInfo div { display:flex; align-items:baseline; gap:10px; padding:8px 16px; border-radius:10px; background:var(--card); }
+  #spInfo span { color:var(--dim); font-size:11px; letter-spacing:.14em; } #spInfo b { font-size:18px; font-weight:600; } #spInfo em { color:var(--dim); font-style:normal; font-size:12px; }
+  @media (max-width:760px) { .spRow { grid-template-columns:1fr; } .spWaveBox { height:70px; } }
   .dlink { display:flex; gap:10px; max-width:640px; margin:24px auto 0; cursor:default; }
   .dlink input { flex:1; min-width:0; background:var(--card); border:1px solid var(--line2); border-radius:10px; color:var(--ink); font:inherit; padding:10px 14px; outline:none; }
   .dlink input:focus { border-color:var(--accent); }
@@ -259,6 +279,7 @@
     <a class="navi" href="#/scan" data-r="scan"><svg viewBox="0 0 24 24"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/></svg><span>Scan sheet music</span></a>
     <a class="navi" href="#/edit" data-r="edit"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span>Edit notes</span></a>
     <a class="navi" href="#/sheet" data-r="sheet"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 11h16M4 15h16M4 19h16"/><circle cx="9" cy="13" r="2"/><path d="M11 13V5l3 1"/></svg><span>Sheet music</span></a>
+    <a class="navi" href="#/split" data-r="split"><svg viewBox="0 0 24 24"><path d="M3 7h6l3 10 3-10h6"/><path d="M3 12h4M17 12h4"/></svg><span>Split instruments</span></a>
     <div class="spacer"></div>
     <div class="me"><b>Local library</b>Saved on this computer</div>
   </aside>
@@ -379,6 +400,34 @@
       <div class="drop" id="scanDrop" role="button" tabindex="0" aria-label="Choose a PDF or photo, or drop one here">
         <div class="dt">Click to choose a PDF or photo, or drop one here</div>
         <div class="dsub">PDF &middot; photo of sheet music &middot; MusicXML file</div>
+      </div>
+    </div></section>
+
+    <!-- SPLIT INSTRUMENTS -->
+    <section id="v-split" class="view"><div class="page">
+      <h1>Split instruments</h1>
+      <p class="lead">Pull a song apart into vocals, drums, bass, guitar, piano and everything else. Then mute, solo or turn down any of them, play along, or save the result.</p>
+      <div class="crow">
+        <span class="lab">Splitter</span>
+        <span id="spState" class="status" style="flex:1;font-size:15px;max-width:none"></span>
+        <select id="spEngine" aria-label="Quality"></select>
+        <label class="act" style="cursor:pointer">Choose a song<input id="spFile" type="file" accept="audio/*,video/*,.mp3,.wav,.m4a,.flac,.ogg,.mp4,.mov,.webm"></label>
+      </div>
+      <div id="spMsg" aria-live="polite"></div><div id="spBar" hidden><i></i></div>
+      <div class="drop" id="spDrop" role="button" tabindex="0" aria-label="Choose a song, or drop one here">
+        <div class="dt">Click to choose a song, or drop one here</div>
+        <div class="dsub">MP3 &middot; WAV &middot; M4A &middot; video with sound. A song takes a few minutes. Keep this page open while it works.</div>
+      </div>
+      <div id="spMixer" hidden>
+        <div id="spTop">
+          <button id="spPlay" class="on">Play</button><span id="spTime">0:00.0 / 0:00.0</span>
+          <span class="spSep"></span>
+          <button id="spAll" title="Everything back on">All</button><button id="spKaraoke" title="Mute the vocals">Karaoke (no vocals)</button>
+          <button id="spVocalsOnly" title="Hear only the vocals">Vocals only</button><button id="spNoDrums" title="Mute the drums">No drums</button>
+          <span class="spGrow"></span><button id="spMixDl" title="Save what you hear now as one WAV file">Download this mix</button>
+        </div>
+        <div id="spTracks"></div>
+        <div id="spInfo"><div><span>KEY</span><b id="spKey">…</b><em id="spKeyAlt"></em></div><div><span>BPM</span><b id="spBpm">…</b></div></div>
       </div>
     </div></section>
 
@@ -1691,7 +1740,12 @@ $("rdGo").onclick = async () => {
 };
 
 // ---------- Pages ----------
-const ROUTES = ["library", "create", "practice", "scan", "edit", "sheet"];
+const ROUTES = ["library", "create", "practice", "scan", "edit", "sheet", "split"];
+let splitUI = null, splitLoading = false;       // the Splitter page's code is loaded the first time it is opened
+async function openSplitter() {
+  if (!splitUI && !splitLoading) { splitLoading = true; try { splitUI = (await import("./splitter.js")).initSplitter(); } catch (e) { console.warn("splitter:", e); } splitLoading = false; }
+  else if (splitUI) splitUI.enter();
+}
 const go = r => { location.hash = "#/" + r; };
 function route() {
   const m = location.hash.match(/#\/(\w+)/), cur = m && ROUTES.includes(m[1]) ? m[1] : "create";
@@ -1703,6 +1757,7 @@ function route() {
   if (cur !== "create") closeEmbed();
   if (cur === "library") renderLibrary();
   if (cur === "scan") checkScanner();
+  if (cur === "split") openSplitter(); else if (splitUI) splitUI.leave();
   if (cur === "practice") { requestAnimationFrame(resize); if (!song.notes.length && !song.layers.length) { $("hint").style.display = ""; $("hint").textContent = "Open a song from Library or Create"; } }
   if (cur === "create" || cur === "scan") say("");
 }
