@@ -424,6 +424,7 @@
           <span class="spSep"></span>
           <button id="spAll" title="Everything back on">All</button><button id="spKaraoke" title="Mute the vocals">Karaoke (no vocals)</button>
           <button id="spVocalsOnly" title="Hear only the vocals">Vocals only</button><button id="spNoDrums" title="Mute the drums">No drums</button>
+          <span class="spSep"></span><button id="spWaterfall" title="Turn the piano part into falling notes and open it in Practice (takes about as long as the song)">See the piano as falling notes</button>
           <span class="spGrow"></span><button id="spMixDl" title="Save what you hear now as one WAV file">Download this mix</button>
         </div>
         <div id="spTracks"></div>
@@ -1458,6 +1459,19 @@ async function audioToNotes(f) {
     setTimeout(dockHide, 600);
   } catch (e) { dockHide(); say("Could not turn that into notes: " + e.message, true); }
 }
+// From the Split page: the piano stem turned into falling notes. Needs the piano model (the same one a recording is read with). The stem itself becomes the
+// song's own sound, so "Original" in Practice plays the isolated piano and "Piano" plays the app's piano from the notes.
+async function pianoStemToPractice(stemBlob, mono16k, name) {
+  if (!pianoReady) throw new Error("The piano model is not set up, so the piano can't be turned into notes (see setup_piano.ps1).");
+  const notes = await pianoNotes(mono16k);
+  if (!notes) throw new Error("The piano model didn't find any notes in the piano part.");
+  const pedal = (notes.pedal || []).map(p => ({ ...p }));
+  await splitHands(notes);
+  const cut = trimLead(notes);
+  for (const p of pedal) p.t = Math.round((p.t - cut) * 1000) / 1000;
+  dockHide();
+  await importSong({ notes, bpm: 100, name: name + " (piano)", video: stemBlob, vOffset: cut, pedal }, true);
+}
 // Send any file to the right importer.
 function openAny(f) {
   if (/\.(mid|midi)$/i.test(f.name)) return loadFile(f);
@@ -1743,7 +1757,7 @@ $("rdGo").onclick = async () => {
 const ROUTES = ["library", "create", "practice", "scan", "edit", "sheet", "split"];
 let splitUI = null, splitLoading = false;       // the Splitter page's code is loaded the first time it is opened
 async function openSplitter() {
-  if (!splitUI && !splitLoading) { splitLoading = true; try { splitUI = (await import("./splitter.js")).initSplitter(); } catch (e) { console.warn("splitter:", e); } splitLoading = false; }
+  if (!splitUI && !splitLoading) { splitLoading = true; try { splitUI = (await import("./splitter.js")).initSplitter({ pianoToPractice: pianoStemToPractice }); } catch (e) { console.warn("splitter:", e); } splitLoading = false; }
   else if (splitUI) splitUI.enter();
 }
 const go = r => { location.hash = "#/" + r; };

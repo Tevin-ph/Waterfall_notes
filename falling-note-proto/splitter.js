@@ -23,7 +23,7 @@ function wavBlob(buf) {                                      // 16-bit stereo WA
 }
 function save(blob, name) { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); }
 
-export function initSplitter() {
+export function initSplitter(hooks = {}) {
   const S = { ac: null, master: null, tracks: {}, name: "song", dur: 0, playing: false, t0: 0, off: 0, raf: 0, solo: new Set(), busy: false };
   const ctx = () => S.ac || (S.ac = new AudioContext({ sampleRate: 44100 }));
   let info = null;
@@ -88,7 +88,7 @@ export function initSplitter() {
     S.dur = Math.max(...Object.values(S.tracks).map(t => t.buf.duration)); S.off = 0;
     let top = 0; for (const t of Object.values(S.tracks)) for (const x of t.peaks) top = Math.max(top, x);
     for (const t of Object.values(S.tracks)) t.peaks = t.peaks.map(x => Math.sqrt(x / (top || 1)));   // one shared scale (a silent stem looks silent); square root so a quiet instrument is still visible
-    buildMixer(); $("spMixer").hidden = false; drawAll(); tick(); applyGains(true);
+    buildMixer(); $("spMixer").hidden = false; $("spWaterfall").hidden = !S.tracks.piano || !hooks.pianoToPractice; drawAll(); tick(); applyGains(true);
     $("spKey").textContent = job.key ? job.key.name : "…"; $("spKeyAlt").textContent = job.key && job.key.alt ? "or " + job.key.alt : ""; $("spBpm").textContent = job.bpm ? job.bpm.toFixed(1) : "…";
   }
   function peaksOf(buf, n) {
@@ -163,6 +163,19 @@ export function initSplitter() {
   $("spKaraoke").onclick = () => preset(() => { if (S.tracks.vocals) S.tracks.vocals.mute = true; });
   $("spVocalsOnly").onclick = () => preset(() => { if (S.tracks.vocals) S.solo.add("vocals"); });
   $("spNoDrums").onclick = () => preset(() => { if (S.tracks.drums) S.tracks.drums.mute = true; });
+  $("spWaterfall").onclick = async () => {                                      // the piano part as falling notes, in Practice
+    const t = S.tracks.piano; if (!t || S.busy || !hooks.pianoToPractice) return;
+    S.busy = true; stop(); $("spWaterfall").disabled = true;
+    const t0 = Date.now(), tickMsg = setInterval(() => { const el = Math.round((Date.now() - t0) / 1000); setMsg("Turning the piano into notes… " + Math.floor(el / 60) + ":" + String(el % 60).padStart(2, "0") + " (about as long as the song). Keep this page open.", null); }, 1000);
+    try {
+      setMsg("Turning the piano into notes…", null);
+      const off = new OfflineAudioContext(1, Math.ceil(t.buf.duration * 16000), 16000), src = off.createBufferSource(); src.buffer = t.buf; src.connect(off.destination); src.start();
+      const mono = (await off.startRendering()).getChannelData(0);                // the piano model listens to 16 kHz mono
+      await hooks.pianoToPractice(wavBlob(t.buf), mono, S.name);
+      setMsg("", null);
+    } catch (e) { setMsg("Could not make falling notes: " + (e.message || e), null, true); }
+    clearInterval(tickMsg); S.busy = false; $("spWaterfall").disabled = false;
+  };
   $("spMixDl").onclick = async () => {                                          // what you hear now, as one file
     const tr = Object.values(S.tracks); if (!tr.length) return;
     const off = new OfflineAudioContext(2, Math.ceil(S.dur * 44100), 44100);
